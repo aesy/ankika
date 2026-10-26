@@ -11,6 +11,10 @@ pub struct Theme {
     pub muted: Color,
     pub accent: Color,
     pub error: Color,
+    pub new_count: Color,
+    pub learn_count: Color,
+    pub review_count: Color,
+    pub filtered: Color,
 }
 
 const TRUE_COLOR: Theme = Theme {
@@ -21,6 +25,10 @@ const TRUE_COLOR: Theme = Theme {
     muted: Color::Rgb(128, 133, 150),
     accent: Color::Rgb(130, 170, 255),
     error: Color::Rgb(240, 113, 120),
+    new_count: Color::Rgb(96, 165, 250),
+    learn_count: Color::Rgb(248, 113, 113),
+    review_count: Color::Rgb(74, 222, 128),
+    filtered: Color::Rgb(192, 132, 252),
 };
 
 /// Closest matches in the xterm 256-color palette.
@@ -32,6 +40,10 @@ const INDEXED: Theme = Theme {
     muted: Color::Indexed(244),
     accent: Color::Indexed(111),
     error: Color::Indexed(203),
+    new_count: Color::Indexed(75),
+    learn_count: Color::Indexed(210),
+    review_count: Color::Indexed(114),
+    filtered: Color::Indexed(177),
 };
 
 impl Theme {

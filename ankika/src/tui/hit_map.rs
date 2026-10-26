@@ -1,3 +1,4 @@
+use anki::decks::DeckId;
 use ratatui::layout::{Position, Rect};
 
 use crate::tui::action::Action;
@@ -12,6 +13,9 @@ pub enum Hit {
     LoginField(Field),
     FullSyncChoice(Choice),
     QuitChoice(QuitChoice),
+    Deck(DeckId),
+    /// The expand or collapse arrow in front of a deck.
+    DeckToggle(DeckId),
     /// Inside an overlay but not on anything clickable, so the overlay stays open.
     Overlay,
 }

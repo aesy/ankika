@@ -1,5 +1,6 @@
 mod action;
 mod choices;
+mod deck_list;
 mod error_text;
 mod full_sync_prompt;
 mod hit_map;
@@ -66,6 +67,7 @@ pub async fn run(
         state.set_notice(notice);
     }
 
+    state.reload_decks(i18n);
     state.start_sync();
 
     let mut terminal = terminal::init().map_err(TuiError::Init)?;

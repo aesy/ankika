@@ -1,3 +1,4 @@
+use ankika_core::decks::DeckError;
 use ankika_core::login::LoginError;
 use ankika_core::sync::SyncError;
 
@@ -25,4 +26,8 @@ pub fn sync(error: &SyncError, i18n: &I18n) -> String {
         | SyncError::Server { source }
         | SyncError::OpenMediaDatabase { source } => source.message(i18n.anki()),
     }
+}
+
+pub fn decks(error: &DeckError, i18n: &I18n) -> String {
+    error.anki_error().message(i18n.anki())
 }

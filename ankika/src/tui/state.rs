@@ -1,5 +1,7 @@
 use anki::collection::Collection;
+use anki::decks::DeckId;
 use ankika_core::collection::CollectionError;
+use ankika_core::decks;
 use ankika_core::session::Session;
 use ankika_core::sync::{
     FullSyncDirection, FullSyncOutput, FullSyncRequired, NormalSyncOutput, SyncError,
@@ -13,6 +15,7 @@ use ratatui::layout::Position;
 use crate::i18n::I18n;
 use crate::tui::action::Action;
 use crate::tui::choices::Choices;
+use crate::tui::deck_list::DeckList;
 use crate::tui::error_text;
 use crate::tui::full_sync_prompt::{Choice, FullSyncPrompt};
 use crate::tui::hit_map::{Hit, HitMap};
@@ -44,6 +47,9 @@ pub struct State {
     /// `None` while a sync task has it.
     collection: Option<Collection>,
     tasks: Tasks,
+    decks: DeckList,
+    /// Collapsed states changed while a sync had the collection.
+    pending_collapse: Vec<(DeckId, bool)>,
     sync: SyncStatus,
     /// Set while media syncs in the background.
     media_sync: Option<AbortHandle>,
@@ -63,6 +69,8 @@ impl State {
             session,
             collection: Some(collection),
             tasks,
+            decks: DeckList::default(),
+            pending_collapse: Vec::new(),
             sync: SyncStatus::Idle,
             media_sync: None,
             overlay: Overlay::None,
@@ -85,6 +93,15 @@ impl State {
 
     pub const fn sync_status(&self) -> SyncStatus {
         self.sync
+    }
+
+    pub const fn decks(&self) -> &DeckList {
+        &self.decks
+    }
+
+    /// The deck list shows the last loaded counts while a sync has the collection.
+    pub const fn decks_stale(&self) -> bool {
+        self.collection.is_none()
     }
 
     pub const fn media_syncing(&self) -> bool {
@@ -137,13 +154,57 @@ impl State {
         self.lost_collection.take()
     }
 
+    pub fn reload_decks(&mut self, i18n: &I18n) {
+        let Some(collection) = &mut self.collection else {
+            return;
+        };
+
+        for (id, collapsed) in self.pending_collapse.drain(..) {
+            if let Err(error) = decks::set_collapsed(collection, id, collapsed) {
+                tracing::warn!(?error, "Failed to store a collapsed deck");
+                self.notice = Some(error_text::decks(&error, i18n));
+            }
+        }
+
+        match decks::deck_tree(collection) {
+            Ok(tree) => self.decks.set_decks(tree),
+            Err(error) => {
+                tracing::warn!(?error, "Failed to load the deck list");
+                self.notice = Some(error_text::decks(&error, i18n));
+            },
+        }
+    }
+
+    fn store_collapse(&mut self, change: Option<(DeckId, bool)>, i18n: &I18n) {
+        let Some((id, collapsed)) = change else {
+            return;
+        };
+        let Some(collection) = &mut self.collection else {
+            self.pending_collapse.push((id, collapsed));
+            return;
+        };
+
+        if let Err(error) = decks::set_collapsed(collection, id, collapsed) {
+            tracing::warn!(?error, "Failed to store a collapsed deck");
+            self.notice = Some(error_text::decks(&error, i18n));
+        }
+    }
+
     pub fn start_sync(&mut self) {
-        let (Some(session), Some(collection)) = (&self.session, self.collection.take()) else {
+        let Some((session, collection)) = self.take_for_sync() else {
             return;
         };
 
         self.sync = SyncStatus::Syncing;
-        self.tasks.sync(collection, session.clone());
+        self.tasks.sync(collection, session);
+    }
+
+    /// Hands the collection over only when there is a login to sync with.
+    fn take_for_sync(&mut self) -> Option<(Session, Collection)> {
+        let session = self.session.clone()?;
+        let collection = self.collection.take()?;
+
+        Some((session, collection))
     }
 
     pub fn handle_event(&mut self, event: &Event, i18n: &I18n) {
@@ -195,6 +256,7 @@ impl State {
                 result,
             } => {
                 self.collection = Some(collection);
+                self.reload_decks(i18n);
 
                 // Logging out during the sync wins over the returned session
                 if self.session.is_some() {
@@ -251,7 +313,10 @@ impl State {
 
     fn finish_full_sync(&mut self, output: FullSyncOutput, i18n: &I18n) {
         match output.collection {
-            Ok(collection) => self.collection = Some(collection),
+            Ok(collection) => {
+                self.collection = Some(collection);
+                self.reload_decks(i18n);
+            },
             Err(error) => {
                 tracing::error!(?error, "Failed to reopen the collection after a full sync");
                 self.lost_collection = Some(error);
@@ -309,13 +374,13 @@ impl State {
     }
 
     fn start_full_sync(&mut self, direction: FullSyncDirection) {
-        let (Some(session), Some(collection)) = (&self.session, self.collection.take()) else {
+        let Some((session, collection)) = self.take_for_sync() else {
             return;
         };
 
         tracing::info!(?direction, "Starting full sync");
         self.sync = SyncStatus::Syncing;
-        self.tasks.full_sync(collection, session.clone(), direction);
+        self.tasks.full_sync(collection, session, direction);
     }
 
     fn handle_key(&mut self, key: &KeyEvent, i18n: &I18n) {
@@ -372,7 +437,22 @@ impl State {
                     self.choose_quit(choice, i18n);
                 }
             },
-            Overlay::None | Overlay::Help => {},
+            Overlay::None => match key.code {
+                KeyCode::Up => self.decks.select_previous(),
+                KeyCode::Down => self.decks.select_next(),
+                KeyCode::Home => self.decks.select_first(),
+                KeyCode::End => self.decks.select_last(),
+                KeyCode::Right => {
+                    let change = self.decks.expand();
+                    self.store_collapse(change, i18n);
+                },
+                KeyCode::Left => {
+                    let change = self.decks.collapse();
+                    self.store_collapse(change, i18n);
+                },
+                _ => {},
+            },
+            Overlay::Help => {},
         }
     }
 
@@ -393,15 +473,15 @@ impl State {
                     palette.select(index);
                 }
             },
-            MouseEventKind::ScrollUp => {
-                if let Overlay::Palette(palette) = &mut self.overlay {
-                    palette.select_previous();
-                }
+            MouseEventKind::ScrollUp => match &mut self.overlay {
+                Overlay::Palette(palette) => palette.select_previous(),
+                Overlay::None => self.decks.select_previous(),
+                _ => {},
             },
-            MouseEventKind::ScrollDown => {
-                if let Overlay::Palette(palette) = &mut self.overlay {
-                    palette.select_next();
-                }
+            MouseEventKind::ScrollDown => match &mut self.overlay {
+                Overlay::Palette(palette) => palette.select_next(),
+                Overlay::None => self.decks.select_next(),
+                _ => {},
             },
             _ => {},
         }
@@ -430,6 +510,11 @@ impl State {
             },
             Some(Hit::FullSyncChoice(choice)) => self.choose_full_sync(choice),
             Some(Hit::QuitChoice(choice)) => self.choose_quit(choice, i18n),
+            Some(Hit::Deck(id)) => self.decks.select(id),
+            Some(Hit::DeckToggle(id)) => {
+                let change = self.decks.toggle(id);
+                self.store_collapse(change, i18n);
+            },
             Some(Hit::Overlay) => {},
             None => self.overlay = Overlay::None,
         }

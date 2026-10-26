@@ -232,6 +232,7 @@ name = "ankika-core"
 version = "0.1.0"
 dependencies = [
  "anki",
+ "anki_proto",
  "directories",
  "keyring",
  "reqwest",

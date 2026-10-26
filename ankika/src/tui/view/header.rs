@@ -24,7 +24,21 @@ pub fn render(
         Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
     );
 
+    let title_width = u16::try_from(title.width()).unwrap_or(u16::MAX);
+    let due = Line::styled(
+        i18n.anki()
+            .statistics_cards_due(state.decks().due_count())
+            .into_owned(),
+        theme.muted,
+    );
+    let due_area = Rect {
+        x: area.x.saturating_add(title_width).saturating_add(GAP * 2),
+        ..area
+    }
+    .intersection(area);
+
     frame.render_widget(title, area);
+    frame.render_widget(due, due_area);
 
     let Some(session) = state.session() else {
         // Logged out: the status doubles as a login button

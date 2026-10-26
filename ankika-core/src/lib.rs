@@ -1,5 +1,6 @@
 pub mod account;
 pub mod collection;
+pub mod decks;
 pub mod host_key;
 pub mod lock;
 pub mod login;
