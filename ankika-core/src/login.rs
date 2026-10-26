@@ -1,9 +1,8 @@
 use anki::error::{AnkiError, SyncErrorKind};
-use anki::prelude::I18n;
 use anki::sync::login::sync_login;
-use reqwest::Client;
 
 use crate::account::Account;
+use crate::remote::{self, english};
 use crate::session::Session;
 
 #[derive(Debug, thiserror::Error)]
@@ -46,11 +45,7 @@ pub async fn log_in(
     password: String,
     sync_server: Option<String>,
 ) -> Result<Session, LoginError> {
-    // Same client setup as Anki desktop uses for syncing
-    let client = Client::builder()
-        .http1_only()
-        .build()
-        .map_err(LoginError::HttpClient)?;
+    let client = remote::http_client().map_err(LoginError::HttpClient)?;
     let auth = sync_login(username.clone(), password, sync_server.clone(), client)
         .await
         .map_err(classify)?;
@@ -59,14 +54,10 @@ pub async fn log_in(
         account: Account {
             username,
             sync_server,
+            current_endpoint: None,
         },
         host_key: auth.hkey,
     })
-}
-
-/// Anki's `Display` only names the variant; its message has the details.
-fn english(error: &AnkiError) -> String {
-    error.message(&I18n::template_only())
 }
 
 fn classify(error: AnkiError) -> LoginError {

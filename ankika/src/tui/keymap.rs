@@ -8,6 +8,7 @@ pub enum Context {
     Help,
     Palette,
     Login,
+    FullSync,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -76,6 +77,7 @@ const MAIN: &[Binding] = &[
     Binding::key('?', Action::ToggleHelp),
     Binding::key(':', Action::OpenPalette),
     Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
+    Binding::key('s', Action::Sync),
     Binding::key('q', Action::Quit),
     QUIT,
 ];
@@ -88,7 +90,7 @@ pub const fn bindings(context: Context) -> &'static [Binding] {
     match context {
         Context::Main => MAIN,
         Context::Help => HELP,
-        Context::Palette | Context::Login => OVERLAY,
+        Context::Palette | Context::Login | Context::FullSync => OVERLAY,
     }
 }
 
@@ -162,6 +164,7 @@ mod tests {
                     Action::OpenPalette,
                     vec![":".to_owned(), "Ctrl+P".to_owned()]
                 ),
+                (Action::Sync, vec!["s".to_owned()]),
                 (Action::Quit, vec!["q".to_owned(), "Ctrl+C".to_owned()]),
             ]
         );

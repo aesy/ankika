@@ -55,6 +55,13 @@ impl SessionStore {
         Ok(())
     }
 
+    /// Updates the account half only, for example after AnkiWeb moved it to another server.
+    pub fn save_account(&self, account: &Account) -> Result<(), SessionError> {
+        self.accounts.save(account)?;
+
+        Ok(())
+    }
+
     pub fn clear(&self) -> Result<(), SessionError> {
         self.accounts.delete()?;
         self.host_keys.delete()?;

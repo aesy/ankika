@@ -1,4 +1,7 @@
+use anki::collection::Collection;
+use ankika_core::collection::CollectionError;
 use ankika_core::session::Session;
+use ankika_core::sync::{FullSyncDirection, FullSyncOutput, FullSyncRequired, NormalSyncOutput};
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
@@ -7,6 +10,7 @@ use ratatui::layout::Position;
 use crate::i18n::I18n;
 use crate::tui::action::Action;
 use crate::tui::error_text;
+use crate::tui::full_sync_prompt::{Choice, FullSyncPrompt};
 use crate::tui::hit_map::{Hit, HitMap};
 use crate::tui::keymap::{self, Context};
 use crate::tui::login_form::{Field, LoginForm};
@@ -18,28 +22,47 @@ pub enum Overlay {
     Help,
     Palette(Palette),
     Login(LoginForm),
+    FullSync(FullSyncPrompt),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncStatus {
+    Idle,
+    Syncing,
+    Synced,
+    Failed,
 }
 
 pub struct State {
     session: Option<Session>,
+    /// `None` while a sync task has it.
+    collection: Option<Collection>,
     tasks: Tasks,
+    sync: SyncStatus,
     overlay: Overlay,
     notice: Option<String>,
     mouse: Option<Position>,
     hits: HitMap,
+    /// Quit was requested and waits for the last sync.
+    quitting: bool,
     quit: bool,
+    lost_collection: Option<CollectionError>,
 }
 
 impl State {
-    pub fn new(session: Option<Session>, tasks: Tasks) -> Self {
+    pub fn new(session: Option<Session>, collection: Collection, tasks: Tasks) -> Self {
         Self {
             session,
+            collection: Some(collection),
             tasks,
+            sync: SyncStatus::Idle,
             overlay: Overlay::None,
             notice: None,
             mouse: None,
             hits: HitMap::default(),
+            quitting: false,
             quit: false,
+            lost_collection: None,
         }
     }
 
@@ -51,11 +74,15 @@ impl State {
         self.session.as_ref()
     }
 
+    pub const fn sync_status(&self) -> SyncStatus {
+        self.sync
+    }
+
     pub const fn overlay(&self) -> &Overlay {
         &self.overlay
     }
 
-    /// An error to show until the next input.
+    /// A message to show until the next input.
     pub fn notice(&self) -> Option<&str> {
         self.notice.as_deref()
     }
@@ -70,6 +97,7 @@ impl State {
             Overlay::Help => Context::Help,
             Overlay::Palette(_) => Context::Palette,
             Overlay::Login(_) => Context::Login,
+            Overlay::FullSync(_) => Context::FullSync,
         }
     }
 
@@ -79,6 +107,25 @@ impl State {
 
     pub fn set_notice(&mut self, notice: String) {
         self.notice = Some(notice);
+    }
+
+    /// The collection for closing on exit, unless a sync task still has it.
+    pub const fn take_collection(&mut self) -> Option<Collection> {
+        self.collection.take()
+    }
+
+    /// Set when a full sync could not reopen the collection; the app cannot go on.
+    pub const fn take_lost_collection(&mut self) -> Option<CollectionError> {
+        self.lost_collection.take()
+    }
+
+    pub fn start_sync(&mut self) {
+        let (Some(session), Some(collection)) = (&self.session, self.collection.take()) else {
+            return;
+        };
+
+        self.sync = SyncStatus::Syncing;
+        self.tasks.sync(collection, session.clone());
     }
 
     pub fn handle_event(&mut self, event: &Event, i18n: &I18n) {
@@ -102,6 +149,8 @@ impl State {
                 if matches!(self.overlay, Overlay::Login(_)) {
                     self.overlay = Overlay::None;
                 }
+
+                self.start_sync();
             },
             TaskResult::LoggedIn(Err(error)) => {
                 tracing::warn!(?error, "Login failed");
@@ -115,12 +164,99 @@ impl State {
             TaskResult::LoggedOut(Ok(())) => {
                 tracing::info!("Logged out");
                 self.session = None;
+                self.sync = SyncStatus::Idle;
             },
             TaskResult::LoggedOut(Err(error)) => {
                 tracing::warn!(?error, "Logout failed");
                 self.notice = Some(i18n.text("error-log-out"));
             },
+            TaskResult::Synced {
+                collection,
+                session,
+                result,
+            } => {
+                self.collection = Some(collection);
+
+                // Logging out during the sync wins over the returned session
+                if self.session.is_some() {
+                    self.session = Some(session);
+                }
+
+                match result {
+                    Ok(output) => self.finish_normal_sync(output),
+                    Err(error) => {
+                        tracing::warn!(?error, "Sync failed");
+                        self.sync = SyncStatus::Failed;
+                        self.notice = Some(error_text::sync(&error, i18n));
+                    },
+                }
+
+                if self.quitting {
+                    self.quit = true;
+                }
+            },
+            TaskResult::FullSynced(output) => self.finish_full_sync(output, i18n),
         }
+    }
+
+    fn finish_normal_sync(&mut self, output: NormalSyncOutput) {
+        if !output.server_message.is_empty() {
+            self.notice = Some(output.server_message);
+        }
+
+        match output.full_sync_required {
+            None => {
+                tracing::info!("Sync complete");
+                self.sync = SyncStatus::Synced;
+            },
+            // Nothing to lose here, but never start a full sync on the way out
+            Some(_) if self.quitting => self.sync = SyncStatus::Idle,
+            Some(FullSyncRequired::DownloadOnly) => {
+                self.start_full_sync(FullSyncDirection::Download);
+            },
+            Some(required) => {
+                self.sync = SyncStatus::Idle;
+                self.overlay = Overlay::FullSync(FullSyncPrompt::new(required));
+            },
+        }
+    }
+
+    fn finish_full_sync(&mut self, output: FullSyncOutput, i18n: &I18n) {
+        match output.collection {
+            Ok(collection) => self.collection = Some(collection),
+            Err(error) => {
+                tracing::error!(?error, "Failed to reopen the collection after a full sync");
+                self.lost_collection = Some(error);
+                self.quit = true;
+                return;
+            },
+        }
+
+        match output.result {
+            Ok(()) => {
+                tracing::info!("Full sync complete");
+                self.sync = SyncStatus::Synced;
+            },
+            Err(error) => {
+                tracing::warn!(?error, "Full sync failed");
+                self.sync = SyncStatus::Failed;
+                self.notice = Some(error_text::sync(&error, i18n));
+            },
+        }
+
+        if self.quitting {
+            self.quit = true;
+        }
+    }
+
+    fn start_full_sync(&mut self, direction: FullSyncDirection) {
+        let (Some(session), Some(collection)) = (&self.session, self.collection.take()) else {
+            return;
+        };
+
+        tracing::info!(?direction, "Starting full sync");
+        self.sync = SyncStatus::Syncing;
+        self.tasks.full_sync(collection, session.clone(), direction);
     }
 
     fn handle_key(&mut self, key: &KeyEvent, i18n: &I18n) {
@@ -166,6 +302,16 @@ impl State {
                         form.push(character);
                     }
                 },
+            },
+            Overlay::FullSync(prompt) => match key.code {
+                KeyCode::Left | KeyCode::Up | KeyCode::BackTab => prompt.focus_previous(),
+                KeyCode::Right | KeyCode::Down | KeyCode::Tab => prompt.focus_next(),
+                KeyCode::Enter => {
+                    if let Some(choice) = prompt.focused() {
+                        self.choose_full_sync(choice);
+                    }
+                },
+                _ => {},
             },
             Overlay::None | Overlay::Help => {},
         }
@@ -223,8 +369,17 @@ impl State {
                     Field::Cancel => self.overlay = Overlay::None,
                 }
             },
+            Some(Hit::FullSyncChoice(choice)) => self.choose_full_sync(choice),
             Some(Hit::Overlay) => {},
             None => self.overlay = Overlay::None,
+        }
+    }
+
+    fn choose_full_sync(&mut self, choice: Choice) {
+        self.overlay = Overlay::None;
+
+        if let Choice::Sync(direction) = choice {
+            self.start_full_sync(direction);
         }
     }
 
@@ -252,14 +407,35 @@ impl State {
         }
     }
 
-    const fn palette_actions(&self) -> [Action; 3] {
-        let account = if self.session.is_some() {
-            Action::LogOut
-        } else {
-            Action::LogIn
-        };
+    fn palette_actions(&self) -> Vec<Action> {
+        let mut actions = vec![Action::ToggleHelp];
 
-        [Action::ToggleHelp, account, Action::Quit]
+        if self.session.is_some() {
+            actions.extend([Action::Sync, Action::LogOut]);
+        } else {
+            actions.push(Action::LogIn);
+        }
+
+        actions.push(Action::Quit);
+        actions
+    }
+
+    fn quit(&mut self, i18n: &I18n) {
+        let can_sync = self.session.is_some() && self.collection.is_some();
+        let syncing = self.sync == SyncStatus::Syncing;
+
+        // A second quit skips the final sync
+        if self.quitting || !(can_sync || syncing) {
+            self.quit = true;
+            return;
+        }
+
+        self.quitting = true;
+        self.notice = Some(i18n.text("sync-before-quit"));
+
+        if !syncing {
+            self.start_sync();
+        }
     }
 
     fn perform(&mut self, action: Action, i18n: &I18n) {
@@ -276,7 +452,14 @@ impl State {
             Action::CloseOverlay => self.overlay = Overlay::None,
             Action::LogIn => self.overlay = Overlay::Login(LoginForm::new()),
             Action::LogOut => self.tasks.log_out(),
-            Action::Quit => self.quit = true,
+            Action::Sync => {
+                if self.session.is_none() {
+                    self.overlay = Overlay::Login(LoginForm::new());
+                } else if self.sync != SyncStatus::Syncing {
+                    self.start_sync();
+                }
+            },
+            Action::Quit => self.quit(i18n),
         }
     }
 }

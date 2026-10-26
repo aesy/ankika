@@ -7,6 +7,7 @@ pub enum Action {
     CloseOverlay,
     LogIn,
     LogOut,
+    Sync,
     Quit,
 }
 
@@ -18,6 +19,7 @@ impl Action {
             Self::CloseOverlay => i18n.anki().actions_close().into_owned(),
             Self::LogIn => i18n.anki().sync_log_in_button().into_owned(),
             Self::LogOut => i18n.anki().sync_log_out_button().into_owned(),
+            Self::Sync => i18n.text("action-sync"),
             Self::Quit => i18n.text("action-quit"),
         }
     }

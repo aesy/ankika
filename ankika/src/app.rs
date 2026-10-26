@@ -1,3 +1,4 @@
+use ankika_core::collection::{self, CollectionError};
 use ankika_core::lock::{CollectionLock, LockError};
 use ankika_core::paths::{Paths, PathsError};
 use ankika_core::session::SessionError;
@@ -19,6 +20,8 @@ pub enum AppError {
     Logging(#[from] LoggingError),
     #[error(transparent)]
     Lock(#[from] LockError),
+    #[error(transparent)]
+    Collection(#[from] CollectionError),
     #[error(transparent)]
     I18n(#[from] I18nError),
     #[error(transparent)]
@@ -47,7 +50,8 @@ pub async fn run(cli: Cli) -> Result<(), AppError> {
         None => {
             let _lock = CollectionLock::acquire(&paths)?;
             let i18n = I18n::new()?;
-            tui::run(&i18n, &paths, cli.sync_server).await?;
+            let collection = collection::open(&paths, i18n.anki().clone())?;
+            tui::run(&i18n, &paths, collection, cli.sync_server).await?;
         },
         Some(Command::Login(args)) => login::run(&paths, args, cli.sync_server).await?,
         Some(Command::Logout) => logout::run(&paths)?,

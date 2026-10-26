@@ -12,6 +12,19 @@ pub struct Account {
     /// A self-hosted sync server; `None` means AnkiWeb.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sync_server: Option<String>,
+    /// The AnkiWeb server this account was last sent to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_endpoint: Option<String>,
+}
+
+impl Account {
+    /// A self-hosted server always wins over AnkiWeb's redirects, as in Anki.
+    #[must_use]
+    pub fn endpoint(&self) -> Option<&str> {
+        self.sync_server
+            .as_deref()
+            .or(self.current_endpoint.as_deref())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -127,6 +140,7 @@ mod tests {
         let account = Account {
             username: "user@example.com".to_owned(),
             sync_server: Some("https://sync.example.com/".to_owned()),
+            current_endpoint: None,
         };
 
         assert_eq!(store.load().unwrap(), None);

@@ -12,3 +12,9 @@ error-http-client = Could not set up a network connection.
 error-load-login = Could not read the stored login. See the log for details.
 error-save-login = Could not store the login. See the log for details.
 error-log-out = Could not remove the stored login. See the log for details.
+
+action-sync = Sync
+sync-status-synced = Synced
+sync-status-failed = Sync failed
+sync-before-quit = Syncing before quitting. Quit again to skip.
+error-sync-server-url = The sync server URL is not valid.

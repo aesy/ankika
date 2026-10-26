@@ -1,5 +1,6 @@
 mod action;
 mod error_text;
+mod full_sync_prompt;
 mod hit_map;
 mod keymap;
 mod login_form;
@@ -12,6 +13,8 @@ mod view;
 
 use std::io;
 
+use anki::collection::Collection;
+use ankika_core::collection::CollectionError;
 use ankika_core::paths::Paths;
 use ankika_core::session::SessionStore;
 use crossterm::event::EventStream;
@@ -35,9 +38,16 @@ pub enum TuiError {
     Draw(#[source] io::Error),
     #[error("Failed to read terminal input")]
     ReadEvent(#[source] io::Error),
+    #[error(transparent)]
+    LostCollection(CollectionError),
 }
 
-pub async fn run(i18n: &I18n, paths: &Paths, sync_server: Option<String>) -> Result<(), TuiError> {
+pub async fn run(
+    i18n: &I18n,
+    paths: &Paths,
+    collection: Collection,
+    sync_server: Option<String>,
+) -> Result<(), TuiError> {
     let sessions = SessionStore::new(paths);
     let (sender, receiver) = mpsc::unbounded_channel();
     let (session, notice) = match sessions.load() {
@@ -47,18 +57,38 @@ pub async fn run(i18n: &I18n, paths: &Paths, sync_server: Option<String>) -> Res
             (None, Some(i18n.text("error-load-login")))
         },
     };
-    let mut state = State::new(session, Tasks::new(sender, sessions, sync_server));
+    let tasks = Tasks::new(sender, sessions, sync_server);
+    let mut state = State::new(session, collection, tasks);
 
     if let Some(notice) = notice {
         state.set_notice(notice);
     }
 
+    state.start_sync();
+
     let mut terminal = terminal::init().map_err(TuiError::Init)?;
     let result = event_loop(&mut terminal, &mut state, receiver, i18n).await;
     let restored = terminal::restore().map_err(TuiError::Restore);
 
+    close(&mut state);
+
+    if let Some(error) = state.take_lost_collection() {
+        return Err(TuiError::LostCollection(error));
+    }
+
     result?;
     restored
+}
+
+/// A sync task that was skipped on quit still holds the collection; it closes when dropped.
+fn close(state: &mut State) {
+    let Some(collection) = state.take_collection() else {
+        return;
+    };
+
+    if let Err(error) = collection.close(None) {
+        tracing::warn!(?error, "Failed to close the collection");
+    }
 }
 
 async fn event_loop(

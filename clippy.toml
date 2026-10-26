@@ -1,1 +1,3 @@
 doc-valid-idents = ["AnkiWeb", ".."]
+# Anki's own `AnkiError` is 112 bytes and every rslib call returns it unboxed
+large-error-threshold = 256

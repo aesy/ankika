@@ -1,6 +1,7 @@
 use ratatui::layout::{Position, Rect};
 
 use crate::tui::action::Action;
+use crate::tui::full_sync_prompt::Choice;
 use crate::tui::login_form::Field;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,6 +9,7 @@ pub enum Hit {
     Action(Action),
     PaletteEntry(usize),
     LoginField(Field),
+    FullSyncChoice(Choice),
     /// Inside an overlay but not on anything clickable, so the overlay stays open.
     Overlay,
 }

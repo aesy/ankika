@@ -9,13 +9,13 @@ use crate::tui::hit_map::{Hit, HitMap};
 use crate::tui::login_form::{Field, LoginForm};
 use crate::tui::state::State;
 use crate::tui::theme::Theme;
+use crate::tui::view::buttons::{self, Button};
 
 const WIDTH: u16 = 52;
 // Borders, one blank line above and below, and the rows other than the error
 const FIXED_HEIGHT: u16 = 10;
 // Anki's network errors are a summary, a blank line and wrapped details
 const ERROR_ROWS: u16 = 5;
-const BUTTON_GAP: u16 = 1;
 const PASSWORD_MASK: char = '*';
 
 pub fn render(
@@ -126,7 +126,6 @@ impl TextField<'_> {
     }
 }
 
-/// Right-aligned submit and cancel buttons.
 fn render_buttons(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -142,36 +141,19 @@ fn render_buttons(
         i18n.anki().sync_log_in_button()
     };
     let buttons = [
-        (Field::Submit, submit_label, form.can_submit()),
-        (Field::Cancel, i18n.anki().sync_cancel_button(), true),
+        Button {
+            label: submit_label.into_owned(),
+            hit: Hit::LoginField(Field::Submit),
+            enabled: form.can_submit(),
+            focused: form.focus() == Field::Submit,
+        },
+        Button {
+            label: i18n.anki().sync_cancel_button().into_owned(),
+            hit: Hit::LoginField(Field::Cancel),
+            enabled: true,
+            focused: form.focus() == Field::Cancel,
+        },
     ];
-    let mut right = area.right();
 
-    for (field, label, enabled) in buttons.into_iter().rev() {
-        let line = Line::raw(format!(" {label} "));
-        let width = u16::try_from(line.width()).unwrap_or(u16::MAX);
-        let button = Rect {
-            x: right.saturating_sub(width),
-            width,
-            ..area
-        }
-        .intersection(area);
-        let hovered = state
-            .mouse()
-            .is_some_and(|position| button.contains(position));
-        let style = if !enabled {
-            Style::new().bg(theme.border).fg(theme.muted)
-        } else if form.focus() == field || hovered {
-            Style::new()
-                .bg(theme.accent)
-                .fg(theme.background)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::new().bg(theme.border).fg(theme.text)
-        };
-
-        frame.render_widget(line.style(style), button);
-        hits.register(button, Hit::LoginField(field));
-        right = button.x.saturating_sub(BUTTON_GAP);
-    }
+    buttons::render_right_aligned(frame, area, &buttons, state.mouse(), theme, hits);
 }
