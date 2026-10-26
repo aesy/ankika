@@ -47,4 +47,30 @@ impl Paths {
     pub fn cache_dir(&self) -> &Path {
         &self.cache
     }
+
+    #[must_use]
+    pub fn collection_file(&self) -> PathBuf {
+        self.data.join("collection.anki2")
+    }
+
+    #[must_use]
+    pub fn media_dir(&self) -> PathBuf {
+        self.data.join("collection.media")
+    }
+
+    #[must_use]
+    pub fn media_db_file(&self) -> PathBuf {
+        self.data.join("collection.media.db2")
+    }
+
+    #[must_use]
+    pub fn lock_file(&self) -> PathBuf {
+        self.data.join("ankika.lock")
+    }
+
+    /// Only used when no OS keyring is available.
+    #[must_use]
+    pub fn host_key_file(&self) -> PathBuf {
+        self.config.join("ankiweb-host-key")
+    }
 }

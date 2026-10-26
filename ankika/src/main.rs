@@ -1,6 +1,8 @@
 mod app;
 mod cli;
+mod i18n;
 mod logging;
+mod tui;
 
 use std::error::Error;
 use std::process::ExitCode;
@@ -9,10 +11,11 @@ use clap::Parser;
 
 use crate::cli::Cli;
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    match app::run(cli) {
+    match app::run(cli).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             report(&error);
