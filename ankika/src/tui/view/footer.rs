@@ -51,4 +51,11 @@ pub fn render(
         hits.register(hint, Hit::Action(action));
         x = x.saturating_add(width).saturating_add(GAP);
     }
+
+    if let Some(notice) = state.notice() {
+        frame.render_widget(
+            Line::styled(format!("{notice} "), Style::new().fg(theme.error)).right_aligned(),
+            area,
+        );
+    }
 }

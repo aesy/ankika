@@ -2,6 +2,7 @@ mod footer;
 mod header;
 mod help;
 mod home;
+mod login;
 mod palette;
 
 use ratatui::Frame;
@@ -30,7 +31,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, i18n: &I18n, theme: Theme) -
     ])
     .areas(area);
 
-    header::render(frame, header_area, i18n, theme);
+    header::render(frame, header_area, state, i18n, theme, &mut hits);
     home::render(frame, main_area, i18n, theme);
     footer::render(frame, footer_area, state, i18n, theme, &mut hits);
 
@@ -38,6 +39,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, i18n: &I18n, theme: Theme) -
         Overlay::None => {},
         Overlay::Help => help::render(frame, area, i18n, theme, &mut hits),
         Overlay::Palette(palette) => palette::render(frame, area, palette, i18n, theme, &mut hits),
+        Overlay::Login(form) => login::render(frame, area, form, state, i18n, theme, &mut hits),
     }
 
     hits

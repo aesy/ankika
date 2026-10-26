@@ -68,6 +68,11 @@ impl Paths {
         self.data.join("ankika.lock")
     }
 
+    #[must_use]
+    pub fn account_file(&self) -> PathBuf {
+        self.config.join("account.toml")
+    }
+
     /// Only used when no OS keyring is available.
     #[must_use]
     pub fn host_key_file(&self) -> PathBuf {

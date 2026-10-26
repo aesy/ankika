@@ -31,10 +31,10 @@ pub struct Palette {
 }
 
 impl Palette {
-    pub fn new(i18n: &I18n) -> Self {
-        let entries: Vec<Entry> = Action::PALETTE
-            .into_iter()
-            .map(|action| Entry {
+    pub fn new(actions: &[Action], i18n: &I18n) -> Self {
+        let entries: Vec<Entry> = actions
+            .iter()
+            .map(|&action| Entry {
                 action,
                 label: action.label(i18n),
             })
@@ -105,15 +105,17 @@ impl Palette {
 mod tests {
     use super::*;
 
+    const ACTIONS: [Action; 2] = [Action::ToggleHelp, Action::Quit];
+
     fn palette() -> Palette {
-        Palette::new(&I18n::new().unwrap())
+        Palette::new(&ACTIONS, &I18n::new().unwrap())
     }
 
     #[test]
     fn empty_query_lists_everything() {
         let palette = palette();
 
-        assert_eq!(palette.matches().len(), Action::PALETTE.len());
+        assert_eq!(palette.matches().len(), ACTIONS.len());
     }
 
     #[test]
@@ -135,6 +137,6 @@ mod tests {
         for _ in 0..10 {
             palette.select_next();
         }
-        assert_eq!(palette.selected(), Action::PALETTE.len() - 1);
+        assert_eq!(palette.selected(), ACTIONS.len() - 1);
     }
 }

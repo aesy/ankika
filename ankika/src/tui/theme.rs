@@ -10,6 +10,7 @@ pub struct Theme {
     pub text: Color,
     pub muted: Color,
     pub accent: Color,
+    pub error: Color,
 }
 
 const TRUE_COLOR: Theme = Theme {
@@ -19,6 +20,7 @@ const TRUE_COLOR: Theme = Theme {
     text: Color::Rgb(220, 223, 228),
     muted: Color::Rgb(128, 133, 150),
     accent: Color::Rgb(130, 170, 255),
+    error: Color::Rgb(240, 113, 120),
 };
 
 /// Closest matches in the xterm 256-color palette.
@@ -29,6 +31,7 @@ const INDEXED: Theme = Theme {
     text: Color::Indexed(253),
     muted: Color::Indexed(244),
     accent: Color::Indexed(111),
+    error: Color::Indexed(203),
 };
 
 impl Theme {

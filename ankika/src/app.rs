@@ -1,7 +1,10 @@
 use ankika_core::lock::{CollectionLock, LockError};
 use ankika_core::paths::{Paths, PathsError};
+use ankika_core::session::SessionError;
 
-use crate::cli::Cli;
+use crate::cli::{Cli, Command};
+use crate::command::login::LoginCommandError;
+use crate::command::{login, logout};
 use crate::i18n::{I18n, I18nError};
 use crate::logging::{self, LoggingError};
 use crate::tui::{self, TuiError};
@@ -20,6 +23,10 @@ pub enum AppError {
     I18n(#[from] I18nError),
     #[error(transparent)]
     Tui(#[from] TuiError),
+    #[error(transparent)]
+    Login(#[from] LoginCommandError),
+    #[error(transparent)]
+    Logout(#[from] SessionError),
 }
 
 pub async fn run(cli: Cli) -> Result<(), AppError> {
@@ -36,9 +43,15 @@ pub async fn run(cli: Cli) -> Result<(), AppError> {
         "Starting ankika"
     );
 
-    let _lock = CollectionLock::acquire(&paths)?;
-    let i18n = I18n::new()?;
-    tui::run(&i18n).await?;
+    match cli.command {
+        None => {
+            let _lock = CollectionLock::acquire(&paths)?;
+            let i18n = I18n::new()?;
+            tui::run(&i18n, &paths, cli.sync_server).await?;
+        },
+        Some(Command::Login(args)) => login::run(&paths, args, cli.sync_server).await?,
+        Some(Command::Logout) => logout::run(&paths)?,
+    }
 
     Ok(())
 }

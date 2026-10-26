@@ -39,7 +39,8 @@ impl I18n {
             })?;
 
         Ok(Self {
-            anki: AnkiI18n::new(&["en"]),
+            // English templates; unlike `new(&["en"])`, also without isolation marks
+            anki: AnkiI18n::template_only(),
             bundle,
         })
     }

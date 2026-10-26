@@ -21,8 +21,9 @@ fluent-bundle = { workspace = true }
 futures-util = { workspace = true }
 nucleo-matcher = { workspace = true }
 ratatui = { workspace = true }
+rpassword = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 unic-langid = { workspace = true, features = ["macros"] }

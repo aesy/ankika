@@ -7,6 +7,7 @@ pub enum Context {
     Main,
     Help,
     Palette,
+    Login,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -81,13 +82,13 @@ const MAIN: &[Binding] = &[
 
 const HELP: &[Binding] = &[ESCAPE, Binding::key('?', Action::ToggleHelp), QUIT];
 
-const PALETTE: &[Binding] = &[ESCAPE, QUIT];
+const OVERLAY: &[Binding] = &[ESCAPE, QUIT];
 
 pub const fn bindings(context: Context) -> &'static [Binding] {
     match context {
         Context::Main => MAIN,
         Context::Help => HELP,
-        Context::Palette => PALETTE,
+        Context::Palette | Context::Login => OVERLAY,
     }
 }
 
