@@ -1,0 +1,21 @@
+[package]
+name = "ankika-core"
+description = "Collection, sync and storage core of ankika, a terminal client for Anki"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish.workspace = true
+
+[dependencies]
+anki = { workspace = true, features = ["rustls"] }
+directories = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true
