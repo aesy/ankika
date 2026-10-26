@@ -1,4 +1,5 @@
 mod action;
+mod card_text;
 mod choices;
 mod deck_list;
 mod error_text;
@@ -8,6 +9,7 @@ mod keymap;
 mod login_form;
 mod palette;
 mod quit_prompt;
+mod review;
 mod state;
 mod tasks;
 mod terminal;

@@ -7,6 +7,7 @@ mod home;
 mod login;
 mod palette;
 mod quit;
+mod review;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -35,7 +36,10 @@ pub fn render(frame: &mut Frame<'_>, state: &State, i18n: &I18n, theme: Theme) -
     .areas(area);
 
     header::render(frame, header_area, state, i18n, theme, &mut hits);
-    home::render(frame, main_area, state, i18n, theme, &mut hits);
+    match state.review() {
+        Some(review) => review::render(frame, main_area, review, state, i18n, theme, &mut hits),
+        None => home::render(frame, main_area, state, i18n, theme, &mut hits),
+    }
     footer::render(frame, footer_area, state, i18n, theme, &mut hits);
 
     match state.overlay() {

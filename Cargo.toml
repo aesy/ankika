@@ -28,6 +28,7 @@ crossterm = "0.29.0"
 directories = "6.0.0"
 fluent-bundle = "0.16.0"
 futures-util = "0.3.34"
+html2text = { version = "0.17.4", features = ["css"] }
 keyring = "4.2.0"
 nucleo-matcher = "0.3.1"
 ratatui = "0.30.2"

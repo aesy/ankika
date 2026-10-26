@@ -2,6 +2,7 @@ use anki::collection::Collection;
 use anki::decks::DeckId;
 use ankika_core::collection::CollectionError;
 use ankika_core::decks;
+use ankika_core::review::{self, Rating, ReviewError};
 use ankika_core::session::Session;
 use ankika_core::sync::{
     FullSyncDirection, FullSyncOutput, FullSyncRequired, NormalSyncOutput, SyncError,
@@ -23,6 +24,7 @@ use crate::tui::keymap::{self, Context};
 use crate::tui::login_form::{Field, LoginForm};
 use crate::tui::palette::Palette;
 use crate::tui::quit_prompt::{self, QuitChoice};
+use crate::tui::review::{Review, Stage};
 use crate::tui::tasks::{TaskResult, Tasks};
 
 pub enum Overlay {
@@ -48,6 +50,7 @@ pub struct State {
     collection: Option<Collection>,
     tasks: Tasks,
     decks: DeckList,
+    review: Option<Review>,
     /// Collapsed states changed while a sync had the collection.
     pending_collapse: Vec<(DeckId, bool)>,
     sync: SyncStatus,
@@ -70,6 +73,7 @@ impl State {
             collection: Some(collection),
             tasks,
             decks: DeckList::default(),
+            review: None,
             pending_collapse: Vec::new(),
             sync: SyncStatus::Idle,
             media_sync: None,
@@ -99,6 +103,10 @@ impl State {
         &self.decks
     }
 
+    pub const fn review(&self) -> Option<&Review> {
+        self.review.as_ref()
+    }
+
     /// The deck list shows the last loaded counts while a sync has the collection.
     pub const fn decks_stale(&self) -> bool {
         self.collection.is_none()
@@ -121,9 +129,17 @@ impl State {
         self.mouse
     }
 
-    pub const fn context(&self) -> Context {
+    pub fn context(&self) -> Context {
         match self.overlay {
-            Overlay::None => Context::Main,
+            Overlay::None => match &self.review {
+                None => Context::Main,
+                Some(review) if review.is_typing() => Context::ReviewTyping,
+                Some(review) => match review.stage() {
+                    Stage::Question { .. } => Context::ReviewQuestion,
+                    Stage::Answer { .. } => Context::ReviewAnswer,
+                    Stage::Waiting | Stage::Finished { .. } => Context::ReviewIdle,
+                },
+            },
             Overlay::Help => Context::Help,
             Overlay::Palette(_) => Context::Palette,
             Overlay::Login(_) => Context::Login,
@@ -257,6 +273,7 @@ impl State {
             } => {
                 self.collection = Some(collection);
                 self.reload_decks(i18n);
+                self.resume_review(i18n);
 
                 // Logging out during the sync wins over the returned session
                 if self.session.is_some() {
@@ -316,6 +333,7 @@ impl State {
             Ok(collection) => {
                 self.collection = Some(collection);
                 self.reload_decks(i18n);
+                self.resume_review(i18n);
             },
             Err(error) => {
                 tracing::error!(?error, "Failed to reopen the collection after a full sync");
@@ -437,6 +455,7 @@ impl State {
                     self.choose_quit(choice, i18n);
                 }
             },
+            Overlay::None if self.review.is_some() => self.handle_review_key(key.code, typed),
             Overlay::None => match key.code {
                 KeyCode::Up => self.decks.select_previous(),
                 KeyCode::Down => self.decks.select_next(),
@@ -475,12 +494,18 @@ impl State {
             },
             MouseEventKind::ScrollUp => match &mut self.overlay {
                 Overlay::Palette(palette) => palette.select_previous(),
-                Overlay::None => self.decks.select_previous(),
+                Overlay::None => match &mut self.review {
+                    Some(review) => review.scroll_up(),
+                    None => self.decks.select_previous(),
+                },
                 _ => {},
             },
             MouseEventKind::ScrollDown => match &mut self.overlay {
                 Overlay::Palette(palette) => palette.select_next(),
-                Overlay::None => self.decks.select_next(),
+                Overlay::None => match &mut self.review {
+                    Some(review) => review.scroll_down(),
+                    None => self.decks.select_next(),
+                },
                 _ => {},
             },
             _ => {},
@@ -510,7 +535,10 @@ impl State {
             },
             Some(Hit::FullSyncChoice(choice)) => self.choose_full_sync(choice),
             Some(Hit::QuitChoice(choice)) => self.choose_quit(choice, i18n),
-            Some(Hit::Deck(id)) => self.decks.select(id),
+            Some(Hit::Deck(id)) => {
+                self.decks.select(id);
+                self.start_review(i18n);
+            },
             Some(Hit::DeckToggle(id)) => {
                 let change = self.decks.toggle(id);
                 self.store_collapse(change, i18n);
@@ -526,6 +554,103 @@ impl State {
         if let Choice::Sync(direction) = choice {
             self.start_full_sync(direction);
         }
+    }
+
+    fn handle_review_key(&mut self, code: KeyCode, typed: Option<char>) {
+        let Some(review) = &mut self.review else {
+            return;
+        };
+
+        match code {
+            KeyCode::Up => review.scroll_up(),
+            KeyCode::Down => review.scroll_down(),
+            KeyCode::Backspace if review.is_typing() => review.pop(),
+            _ => {
+                if let Some(character) = typed
+                    && review.is_typing()
+                {
+                    review.push(character);
+                }
+            },
+        }
+    }
+
+    fn start_review(&mut self, i18n: &I18n) {
+        let Some(deck) = self.decks.selected().and_then(|id| self.decks.deck(id)) else {
+            return;
+        };
+
+        self.review = Some(Review::new(deck.id, deck.name.clone()));
+        self.resume_review(i18n);
+    }
+
+    /// Shows the next card, or waits when a sync has the collection.
+    fn resume_review(&mut self, i18n: &I18n) {
+        let Some(review) = &mut self.review else {
+            return;
+        };
+        let Some(collection) = &mut self.collection else {
+            review.wait();
+            return;
+        };
+
+        if let Err(error) = next_card(collection, review, i18n) {
+            self.fail_review(&error, i18n);
+        }
+    }
+
+    fn show_answer(&mut self, i18n: &I18n) {
+        let (Some(review), Some(collection)) = (&mut self.review, &mut self.collection) else {
+            return;
+        };
+        let Some((card, typed)) = review.question() else {
+            return;
+        };
+
+        match card.answer(collection, typed) {
+            Ok(html) => review.show_answer(html),
+            Err(error) => self.fail_review(&error, i18n),
+        }
+    }
+
+    fn answer(&mut self, rating: Rating, i18n: &I18n) {
+        let (Some(review), Some(collection)) = (&mut self.review, &mut self.collection) else {
+            return;
+        };
+        let Some((card, taken)) = review.answered_card() else {
+            return;
+        };
+        let result = review::answer(collection, card, rating, taken)
+            .and_then(|()| next_card(collection, review, i18n));
+
+        if let Err(error) = result {
+            self.fail_review(&error, i18n);
+        }
+    }
+
+    fn undo(&mut self, i18n: &I18n) {
+        let (Some(review), Some(collection)) = (&mut self.review, &mut self.collection) else {
+            return;
+        };
+        let result = review::undo(collection).and_then(|undone| {
+            if undone {
+                next_card(collection, review, i18n)
+            } else {
+                Ok(())
+            }
+        });
+
+        if let Err(error) = result {
+            self.fail_review(&error, i18n);
+        }
+    }
+
+    /// Goes back to the deck list, since the card on screen may no longer be valid.
+    fn fail_review(&mut self, error: &ReviewError, i18n: &I18n) {
+        tracing::warn!(?error, "Review failed");
+        self.notice = Some(error_text::review(error, i18n));
+        self.review = None;
+        self.reload_decks(i18n);
     }
 
     fn choose_quit(&mut self, choice: QuitChoice, i18n: &I18n) {
@@ -565,7 +690,9 @@ impl State {
     fn palette_actions(&self) -> Vec<Action> {
         let mut actions = vec![Action::ToggleHelp];
 
-        if self.session.is_some() {
+        if self.review.is_some() {
+            actions.extend([Action::Undo, Action::CloseReview]);
+        } else if self.session.is_some() {
             actions.extend([Action::Sync, Action::LogOut]);
         } else {
             actions.push(Action::LogIn);
@@ -630,12 +757,22 @@ impl State {
             Action::CloseOverlay => self.overlay = Overlay::None,
             Action::LogIn => self.overlay = Overlay::Login(LoginForm::new()),
             Action::LogOut => self.tasks.log_out(),
+            // Studying keeps the collection; syncing waits for the deck list, like in Anki
+            Action::Sync if self.review.is_some() => {},
             Action::Sync => {
                 if self.session.is_none() {
                     self.overlay = Overlay::Login(LoginForm::new());
                 } else if self.sync != SyncStatus::Syncing {
                     self.start_sync();
                 }
+            },
+            Action::Study => self.start_review(i18n),
+            Action::ShowAnswer => self.show_answer(i18n),
+            Action::Answer(rating) => self.answer(rating, i18n),
+            Action::Undo => self.undo(i18n),
+            Action::CloseReview => {
+                self.review = None;
+                self.reload_decks(i18n);
             },
             Action::Quit => self.quit(i18n),
         }
@@ -652,4 +789,21 @@ fn navigate<T: Copy>(choices: &mut Choices<T>, code: KeyCode) -> Option<T> {
     }
 
     None
+}
+
+fn next_card(
+    collection: &mut Collection,
+    review: &mut Review,
+    i18n: &I18n,
+) -> Result<(), ReviewError> {
+    if review.take_deck_selection() {
+        review::select_deck(collection, review.deck())?;
+    }
+
+    match review::next_card(collection, i18n.anki())? {
+        Some(next) => review.show_question(next.card, next.counts),
+        None => review.finish(review::studied_today(collection)?),
+    }
+
+    Ok(())
 }

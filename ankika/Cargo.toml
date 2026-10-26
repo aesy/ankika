@@ -19,6 +19,7 @@ clap = { workspace = true, features = ["derive", "env"] }
 crossterm = { workspace = true, features = ["event-stream"] }
 fluent-bundle = { workspace = true }
 futures-util = { workspace = true }
+html2text = { workspace = true }
 nucleo-matcher = { workspace = true }
 ratatui = { workspace = true }
 rpassword = { workspace = true }

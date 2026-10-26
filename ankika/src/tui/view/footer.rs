@@ -37,6 +37,12 @@ pub fn render(
             ),
         ]);
         let width = u16::try_from(line.width()).unwrap_or(u16::MAX);
+
+        // Whole hints only; the rest stay listed in the help overlay
+        if x.saturating_add(width) > area.right() {
+            break;
+        }
+
         let hint = Rect::new(x, area.y, width, 1).intersection(area);
         let hovered = state
             .mouse()

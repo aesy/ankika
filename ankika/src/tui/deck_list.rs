@@ -34,6 +34,10 @@ impl DeckList {
         self.selected
     }
 
+    pub fn deck(&self, id: DeckId) -> Option<&DeckNode> {
+        find(&self.decks, id)
+    }
+
     /// Cards due today over all decks.
     pub fn due_count(&self) -> u32 {
         self.decks.iter().map(DeckNode::due_count).sum()

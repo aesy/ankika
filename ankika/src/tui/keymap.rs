@@ -1,3 +1,4 @@
+use ankika_core::review::Rating;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::tui::action::Action;
@@ -10,6 +11,12 @@ pub enum Context {
     Login,
     FullSync,
     Quit,
+    ReviewQuestion,
+    /// The question has an input line, so plain characters are typed instead.
+    ReviewTyping,
+    ReviewAnswer,
+    /// Waiting for a sync, or finished.
+    ReviewIdle,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -37,6 +44,10 @@ impl Binding {
 
     const fn key(character: char, action: Action) -> Self {
         Self::new(KeyCode::Char(character), KeyModifiers::NONE, "", action)
+    }
+
+    const fn named(code: KeyCode, label: &'static str, action: Action) -> Self {
+        Self::new(code, KeyModifiers::NONE, label, action)
     }
 
     const fn ctrl(character: char, label: &'static str, action: Action) -> Self {
@@ -74,12 +85,63 @@ const ESCAPE: Binding = Binding::new(
     Action::CloseOverlay,
 );
 
+const UNDO: Binding = Binding::ctrl('z', "Ctrl+Z", Action::Undo);
+const CLOSE_REVIEW: Binding = Binding::named(KeyCode::Esc, "Esc", Action::CloseReview);
+
 const MAIN: &[Binding] = &[
+    Binding::named(KeyCode::Enter, "Enter", Action::Study),
     Binding::key('?', Action::ToggleHelp),
     Binding::key(':', Action::OpenPalette),
     Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
     Binding::key('s', Action::Sync),
     Binding::key('q', Action::Quit),
+    QUIT,
+];
+
+const REVIEW_QUESTION: &[Binding] = &[
+    Binding::named(KeyCode::Char(' '), "Space", Action::ShowAnswer),
+    Binding::named(KeyCode::Enter, "Enter", Action::ShowAnswer),
+    UNDO,
+    CLOSE_REVIEW,
+    Binding::key('q', Action::CloseReview),
+    Binding::key('?', Action::ToggleHelp),
+    Binding::key(':', Action::OpenPalette),
+    Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
+    QUIT,
+];
+
+const REVIEW_TYPING: &[Binding] = &[
+    Binding::named(KeyCode::Enter, "Enter", Action::ShowAnswer),
+    UNDO,
+    CLOSE_REVIEW,
+    Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
+    QUIT,
+];
+
+const REVIEW_ANSWER: &[Binding] = &[
+    Binding::key('1', Action::Answer(Rating::Again)),
+    Binding::key('2', Action::Answer(Rating::Hard)),
+    Binding::key('3', Action::Answer(Rating::Good)),
+    Binding::named(KeyCode::Char(' '), "Space", Action::Answer(Rating::Good)),
+    Binding::named(KeyCode::Enter, "Enter", Action::Answer(Rating::Good)),
+    Binding::key('4', Action::Answer(Rating::Easy)),
+    UNDO,
+    CLOSE_REVIEW,
+    Binding::key('q', Action::CloseReview),
+    Binding::key('?', Action::ToggleHelp),
+    Binding::key(':', Action::OpenPalette),
+    Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
+    QUIT,
+];
+
+const REVIEW_IDLE: &[Binding] = &[
+    CLOSE_REVIEW,
+    Binding::named(KeyCode::Enter, "Enter", Action::CloseReview),
+    Binding::key('q', Action::CloseReview),
+    UNDO,
+    Binding::key('?', Action::ToggleHelp),
+    Binding::key(':', Action::OpenPalette),
+    Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
     QUIT,
 ];
 
@@ -92,6 +154,10 @@ pub const fn bindings(context: Context) -> &'static [Binding] {
         Context::Main => MAIN,
         Context::Help => HELP,
         Context::Palette | Context::Login | Context::FullSync | Context::Quit => OVERLAY,
+        Context::ReviewQuestion => REVIEW_QUESTION,
+        Context::ReviewTyping => REVIEW_TYPING,
+        Context::ReviewAnswer => REVIEW_ANSWER,
+        Context::ReviewIdle => REVIEW_IDLE,
     }
 }
 
@@ -160,6 +226,7 @@ mod tests {
         assert_eq!(
             groups,
             vec![
+                (Action::Study, vec!["Enter".to_owned()]),
                 (Action::ToggleHelp, vec!["?".to_owned()]),
                 (
                     Action::OpenPalette,

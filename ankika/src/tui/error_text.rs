@@ -1,5 +1,6 @@
 use ankika_core::decks::DeckError;
 use ankika_core::login::LoginError;
+use ankika_core::review::ReviewError;
 use ankika_core::sync::SyncError;
 
 use crate::i18n::I18n;
@@ -29,5 +30,9 @@ pub fn sync(error: &SyncError, i18n: &I18n) -> String {
 }
 
 pub fn decks(error: &DeckError, i18n: &I18n) -> String {
+    error.anki_error().message(i18n.anki())
+}
+
+pub fn review(error: &ReviewError, i18n: &I18n) -> String {
     error.anki_error().message(i18n.anki())
 }

@@ -1,11 +1,13 @@
+use ankika_core::review::Queue;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 
 use crate::i18n::I18n;
 use crate::tui::action::Action;
 use crate::tui::hit_map::{Hit, HitMap};
+use crate::tui::review::{Review, Stage};
 use crate::tui::state::{State, SyncStatus};
 use crate::tui::theme::Theme;
 
@@ -25,20 +27,25 @@ pub fn render(
     );
 
     let title_width = u16::try_from(title.width()).unwrap_or(u16::MAX);
-    let due = Line::styled(
-        i18n.anki()
-            .statistics_cards_due(state.decks().due_count())
-            .into_owned(),
-        theme.muted,
+    let status = state.review().map_or_else(
+        || {
+            Line::styled(
+                i18n.anki()
+                    .statistics_cards_due(state.decks().due_count())
+                    .into_owned(),
+                theme.muted,
+            )
+        },
+        |review| review_counts(review, theme),
     );
-    let due_area = Rect {
+    let status_area = Rect {
         x: area.x.saturating_add(title_width).saturating_add(GAP * 2),
         ..area
     }
     .intersection(area);
 
     frame.render_widget(title, area);
-    frame.render_widget(due, due_area);
+    frame.render_widget(status, status_area);
 
     let Some(session) = state.session() else {
         // Logged out: the status doubles as a login button
@@ -72,6 +79,35 @@ pub fn render(
 
     frame.render_widget(username.right_aligned(), area);
     render_button(frame, area, sync_right, &sync, state, theme, hits);
+}
+
+/// The remaining counts, with the current card's queue underlined like in Anki.
+fn review_counts(review: &Review, theme: Theme) -> Line<'static> {
+    let Some(counts) = review.counts() else {
+        return Line::default();
+    };
+    let current = match review.stage() {
+        Stage::Question { card, .. } | Stage::Answer { card, .. } => Some(card.queue),
+        Stage::Waiting | Stage::Finished { .. } => None,
+    };
+    let count = |value: usize, queue: Queue, color| {
+        let style = Style::new().fg(color);
+        let style = if current == Some(queue) {
+            style.add_modifier(Modifier::UNDERLINED | Modifier::BOLD)
+        } else {
+            style
+        };
+
+        Span::styled(value.to_string(), style)
+    };
+
+    Line::from(vec![
+        count(counts.new, Queue::New, theme.new_count),
+        Span::raw(" "),
+        count(counts.learning, Queue::Learning, theme.learn_count),
+        Span::raw(" "),
+        count(counts.review, Queue::Review, theme.review_count),
+    ])
 }
 
 struct HeaderButton {
