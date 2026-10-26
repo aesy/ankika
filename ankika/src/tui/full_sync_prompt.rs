@@ -1,5 +1,7 @@
 use ankika_core::sync::{FullSyncDirection, FullSyncRequired};
 
+use crate::tui::choices::Choices;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Choice {
     Sync(FullSyncDirection),
@@ -10,42 +12,12 @@ pub enum Choice {
 /// other choices throw data away.
 pub struct FullSyncPrompt {
     required: FullSyncRequired,
-    focused: usize,
+    choices: Choices<Choice>,
 }
 
 impl FullSyncPrompt {
     pub const fn new(required: FullSyncRequired) -> Self {
-        let choices = Self::choices_for(required);
-
-        Self {
-            required,
-            focused: choices.len().saturating_sub(1),
-        }
-    }
-
-    pub const fn required(&self) -> FullSyncRequired {
-        self.required
-    }
-
-    pub const fn choices(&self) -> &'static [Choice] {
-        Self::choices_for(self.required)
-    }
-
-    pub fn focused(&self) -> Option<Choice> {
-        self.choices().get(self.focused).copied()
-    }
-
-    pub const fn focus_next(&mut self) {
-        self.focused = (self.focused + 1) % self.choices().len();
-    }
-
-    pub const fn focus_previous(&mut self) {
-        let count = self.choices().len();
-        self.focused = (self.focused + count - 1) % count;
-    }
-
-    const fn choices_for(required: FullSyncRequired) -> &'static [Choice] {
-        match required {
+        let items: &[Choice] = match required {
             FullSyncRequired::Conflict => &[
                 Choice::Sync(FullSyncDirection::Download),
                 Choice::Sync(FullSyncDirection::Upload),
@@ -57,7 +29,24 @@ impl FullSyncPrompt {
             FullSyncRequired::DownloadOnly => {
                 &[Choice::Sync(FullSyncDirection::Download), Choice::Cancel]
             },
+        };
+
+        Self {
+            required,
+            choices: Choices::new(items),
         }
+    }
+
+    pub const fn required(&self) -> FullSyncRequired {
+        self.required
+    }
+
+    pub const fn choices(&self) -> &Choices<Choice> {
+        &self.choices
+    }
+
+    pub const fn choices_mut(&mut self) -> &mut Choices<Choice> {
+        &mut self.choices
     }
 }
 
@@ -69,19 +58,6 @@ mod tests {
     fn starts_on_cancel() {
         let prompt = FullSyncPrompt::new(FullSyncRequired::Conflict);
 
-        assert_eq!(prompt.focused(), Some(Choice::Cancel));
-    }
-
-    #[test]
-    fn focus_wraps_around() {
-        let mut prompt = FullSyncPrompt::new(FullSyncRequired::UploadOnly);
-        prompt.focus_next();
-        assert_eq!(
-            prompt.focused(),
-            Some(Choice::Sync(FullSyncDirection::Upload))
-        );
-
-        prompt.focus_previous();
-        assert_eq!(prompt.focused(), Some(Choice::Cancel));
+        assert_eq!(prompt.choices().focused(), Some(Choice::Cancel));
     }
 }

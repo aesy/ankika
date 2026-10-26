@@ -29,6 +29,11 @@ pub enum SyncError {
         #[source]
         source: AnkiError,
     },
+    #[error("Failed to open the media database: {}", english(source))]
+    OpenMediaDatabase {
+        #[source]
+        source: AnkiError,
+    },
 }
 
 impl SyncError {
@@ -37,9 +42,10 @@ impl SyncError {
     pub const fn anki_error(&self) -> Option<&AnkiError> {
         match self {
             Self::InvalidSyncServer { .. } | Self::HttpClient(_) => None,
-            Self::AuthFailed { source } | Self::Network { source } | Self::Server { source } => {
-                Some(source)
-            },
+            Self::AuthFailed { source }
+            | Self::Network { source }
+            | Self::Server { source }
+            | Self::OpenMediaDatabase { source } => Some(source),
         }
     }
 }
@@ -136,7 +142,7 @@ async fn run_full_sync(
     result.map_err(classify)
 }
 
-fn auth(session: &Session) -> Result<SyncAuth, SyncError> {
+pub(crate) fn auth(session: &Session) -> Result<SyncAuth, SyncError> {
     let endpoint = session
         .account
         .endpoint()
@@ -157,7 +163,7 @@ fn auth(session: &Session) -> Result<SyncAuth, SyncError> {
     })
 }
 
-fn classify(error: AnkiError) -> SyncError {
+pub(crate) fn classify(error: AnkiError) -> SyncError {
     match &error {
         AnkiError::SyncError { source } if source.kind == SyncErrorKind::AuthFailed => {
             SyncError::AuthFailed { source: error }

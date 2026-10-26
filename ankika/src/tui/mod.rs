@@ -1,10 +1,12 @@
 mod action;
+mod choices;
 mod error_text;
 mod full_sync_prompt;
 mod hit_map;
 mod keymap;
 mod login_form;
 mod palette;
+mod quit_prompt;
 mod state;
 mod tasks;
 mod terminal;
@@ -72,7 +74,11 @@ pub async fn run(
 
     close(&mut state);
 
-    if let Some(error) = state.take_lost_collection() {
+    let lost_collection = state.take_lost_collection();
+
+    state.into_tasks().shutdown().await;
+
+    if let Some(error) = lost_collection {
         return Err(TuiError::LostCollection(error));
     }
 
@@ -80,7 +86,7 @@ pub async fn run(
     restored
 }
 
-/// A sync task that was skipped on quit still holds the collection; it closes when dropped.
+/// A sync that was skipped on quit still holds the collection; it closes when the sync stops.
 fn close(state: &mut State) {
     let Some(collection) = state.take_collection() else {
         return;

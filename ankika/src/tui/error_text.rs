@@ -22,6 +22,7 @@ pub fn sync(error: &SyncError, i18n: &I18n) -> String {
         SyncError::HttpClient(_) => i18n.text("error-http-client"),
         SyncError::AuthFailed { source }
         | SyncError::Network { source }
-        | SyncError::Server { source } => source.message(i18n.anki()),
+        | SyncError::Server { source }
+        | SyncError::OpenMediaDatabase { source } => source.message(i18n.anki()),
     }
 }

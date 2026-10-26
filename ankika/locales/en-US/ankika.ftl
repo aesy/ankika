@@ -17,4 +17,7 @@ action-sync = Sync
 sync-status-synced = Synced
 sync-status-failed = Sync failed
 sync-before-quit = Syncing before quitting. Quit again to skip.
+sync-status-media = Syncing media...
+quit-media-syncing = Media is still syncing. Wait for it to finish, or abort it and continue next time.
+quit-wait = Wait
 error-sync-server-url = The sync server URL is not valid.

@@ -9,6 +9,7 @@ pub enum Context {
     Palette,
     Login,
     FullSync,
+    Quit,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -90,7 +91,7 @@ pub const fn bindings(context: Context) -> &'static [Binding] {
     match context {
         Context::Main => MAIN,
         Context::Help => HELP,
-        Context::Palette | Context::Login | Context::FullSync => OVERLAY,
+        Context::Palette | Context::Login | Context::FullSync | Context::Quit => OVERLAY,
     }
 }
 

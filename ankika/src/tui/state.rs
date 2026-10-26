@@ -1,20 +1,25 @@
 use anki::collection::Collection;
 use ankika_core::collection::CollectionError;
 use ankika_core::session::Session;
-use ankika_core::sync::{FullSyncDirection, FullSyncOutput, FullSyncRequired, NormalSyncOutput};
+use ankika_core::sync::{
+    FullSyncDirection, FullSyncOutput, FullSyncRequired, NormalSyncOutput, SyncError,
+};
 use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
+use futures_util::future::AbortHandle;
 use ratatui::layout::Position;
 
 use crate::i18n::I18n;
 use crate::tui::action::Action;
+use crate::tui::choices::Choices;
 use crate::tui::error_text;
 use crate::tui::full_sync_prompt::{Choice, FullSyncPrompt};
 use crate::tui::hit_map::{Hit, HitMap};
 use crate::tui::keymap::{self, Context};
 use crate::tui::login_form::{Field, LoginForm};
 use crate::tui::palette::Palette;
+use crate::tui::quit_prompt::{self, QuitChoice};
 use crate::tui::tasks::{TaskResult, Tasks};
 
 pub enum Overlay {
@@ -23,6 +28,7 @@ pub enum Overlay {
     Palette(Palette),
     Login(LoginForm),
     FullSync(FullSyncPrompt),
+    Quit(Choices<QuitChoice>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,11 +45,13 @@ pub struct State {
     collection: Option<Collection>,
     tasks: Tasks,
     sync: SyncStatus,
+    /// Set while media syncs in the background.
+    media_sync: Option<AbortHandle>,
     overlay: Overlay,
     notice: Option<String>,
     mouse: Option<Position>,
     hits: HitMap,
-    /// Quit was requested and waits for the last sync.
+    /// Quit was requested and waits for the running syncs.
     quitting: bool,
     quit: bool,
     lost_collection: Option<CollectionError>,
@@ -56,6 +64,7 @@ impl State {
             collection: Some(collection),
             tasks,
             sync: SyncStatus::Idle,
+            media_sync: None,
             overlay: Overlay::None,
             notice: None,
             mouse: None,
@@ -78,6 +87,10 @@ impl State {
         self.sync
     }
 
+    pub const fn media_syncing(&self) -> bool {
+        self.media_sync.is_some()
+    }
+
     pub const fn overlay(&self) -> &Overlay {
         &self.overlay
     }
@@ -98,6 +111,7 @@ impl State {
             Overlay::Palette(_) => Context::Palette,
             Overlay::Login(_) => Context::Login,
             Overlay::FullSync(_) => Context::FullSync,
+            Overlay::Quit(_) => Context::Quit,
         }
     }
 
@@ -112,6 +126,10 @@ impl State {
     /// The collection for closing on exit, unless a sync task still has it.
     pub const fn take_collection(&mut self) -> Option<Collection> {
         self.collection.take()
+    }
+
+    pub fn into_tasks(self) -> Tasks {
+        self.tasks
     }
 
     /// Set when a full sync could not reopen the collection; the app cannot go on.
@@ -165,6 +183,7 @@ impl State {
                 tracing::info!("Logged out");
                 self.session = None;
                 self.sync = SyncStatus::Idle;
+                self.abort_media_sync();
             },
             TaskResult::LoggedOut(Err(error)) => {
                 tracing::warn!(?error, "Logout failed");
@@ -183,7 +202,7 @@ impl State {
                 }
 
                 match result {
-                    Ok(output) => self.finish_normal_sync(output),
+                    Ok(output) => self.finish_normal_sync(output, i18n),
                     Err(error) => {
                         tracing::warn!(?error, "Sync failed");
                         self.sync = SyncStatus::Failed;
@@ -191,15 +210,23 @@ impl State {
                     },
                 }
 
-                if self.quitting {
-                    self.quit = true;
-                }
+                self.quit_if_done();
             },
             TaskResult::FullSynced(output) => self.finish_full_sync(output, i18n),
+            TaskResult::MediaSynced(result) => {
+                self.media_sync = None;
+
+                match result {
+                    Ok(()) => tracing::info!("Media sync complete"),
+                    Err(error) => self.fail_media_sync(&error, i18n),
+                }
+
+                self.quit_if_done();
+            },
         }
     }
 
-    fn finish_normal_sync(&mut self, output: NormalSyncOutput) {
+    fn finish_normal_sync(&mut self, output: NormalSyncOutput, i18n: &I18n) {
         if !output.server_message.is_empty() {
             self.notice = Some(output.server_message);
         }
@@ -208,6 +235,7 @@ impl State {
             None => {
                 tracing::info!("Sync complete");
                 self.sync = SyncStatus::Synced;
+                self.start_media_sync(i18n);
             },
             // Nothing to lose here, but never start a full sync on the way out
             Some(_) if self.quitting => self.sync = SyncStatus::Idle,
@@ -227,7 +255,7 @@ impl State {
             Err(error) => {
                 tracing::error!(?error, "Failed to reopen the collection after a full sync");
                 self.lost_collection = Some(error);
-                self.quit = true;
+                self.quit_now();
                 return;
             },
         }
@@ -236,6 +264,7 @@ impl State {
             Ok(()) => {
                 tracing::info!("Full sync complete");
                 self.sync = SyncStatus::Synced;
+                self.start_media_sync(i18n);
             },
             Err(error) => {
                 tracing::warn!(?error, "Full sync failed");
@@ -244,8 +273,38 @@ impl State {
             },
         }
 
-        if self.quitting {
-            self.quit = true;
+        self.quit_if_done();
+    }
+
+    fn start_media_sync(&mut self, i18n: &I18n) {
+        let (Some(session), Some(collection)) = (&self.session, &self.collection) else {
+            return;
+        };
+
+        if self.media_sync.is_some() {
+            return;
+        }
+
+        match self.tasks.media_sync(collection, session) {
+            Ok(abort) => self.media_sync = Some(abort),
+            Err(error) => self.fail_media_sync(&error, i18n),
+        }
+    }
+
+    fn fail_media_sync(&mut self, error: &SyncError, i18n: &I18n) {
+        tracing::warn!(?error, "Media sync failed");
+        self.sync = SyncStatus::Failed;
+        self.notice = Some(format!(
+            "{} {}",
+            i18n.anki().sync_media_failed(),
+            error_text::sync(error, i18n)
+        ));
+    }
+
+    fn abort_media_sync(&mut self) {
+        if let Some(abort) = self.media_sync.take() {
+            tracing::info!("Aborting media sync");
+            abort.abort();
         }
     }
 
@@ -303,15 +362,15 @@ impl State {
                     }
                 },
             },
-            Overlay::FullSync(prompt) => match key.code {
-                KeyCode::Left | KeyCode::Up | KeyCode::BackTab => prompt.focus_previous(),
-                KeyCode::Right | KeyCode::Down | KeyCode::Tab => prompt.focus_next(),
-                KeyCode::Enter => {
-                    if let Some(choice) = prompt.focused() {
-                        self.choose_full_sync(choice);
-                    }
-                },
-                _ => {},
+            Overlay::FullSync(prompt) => {
+                if let Some(choice) = navigate(prompt.choices_mut(), key.code) {
+                    self.choose_full_sync(choice);
+                }
+            },
+            Overlay::Quit(choices) => {
+                if let Some(choice) = navigate(choices, key.code) {
+                    self.choose_quit(choice, i18n);
+                }
             },
             Overlay::None | Overlay::Help => {},
         }
@@ -370,6 +429,7 @@ impl State {
                 }
             },
             Some(Hit::FullSyncChoice(choice)) => self.choose_full_sync(choice),
+            Some(Hit::QuitChoice(choice)) => self.choose_quit(choice, i18n),
             Some(Hit::Overlay) => {},
             None => self.overlay = Overlay::None,
         }
@@ -380,6 +440,16 @@ impl State {
 
         if let Choice::Sync(direction) = choice {
             self.start_full_sync(direction);
+        }
+    }
+
+    fn choose_quit(&mut self, choice: QuitChoice, i18n: &I18n) {
+        self.overlay = Overlay::None;
+
+        match choice {
+            QuitChoice::Wait => self.begin_quit(i18n),
+            QuitChoice::Abort => self.quit_now(),
+            QuitChoice::Cancel => {},
         }
     }
 
@@ -421,21 +491,44 @@ impl State {
     }
 
     fn quit(&mut self, i18n: &I18n) {
+        // A second quit skips the remaining syncs
+        if self.quitting || matches!(self.overlay, Overlay::Quit(_)) {
+            self.quit_now();
+        } else if self.media_sync.is_some() {
+            self.overlay = Overlay::Quit(quit_prompt::new());
+        } else {
+            self.begin_quit(i18n);
+        }
+    }
+
+    /// Syncs once more, then quits when every sync is done.
+    fn begin_quit(&mut self, i18n: &I18n) {
         let can_sync = self.session.is_some() && self.collection.is_some();
         let syncing = self.sync == SyncStatus::Syncing;
 
-        // A second quit skips the final sync
-        if self.quitting || !(can_sync || syncing) {
-            self.quit = true;
+        if !(can_sync || syncing || self.media_sync.is_some()) {
+            self.quit_now();
             return;
         }
 
         self.quitting = true;
         self.notice = Some(i18n.text("sync-before-quit"));
 
-        if !syncing {
+        if can_sync && !syncing {
             self.start_sync();
         }
+    }
+
+    fn quit_if_done(&mut self) {
+        if self.quitting && self.sync != SyncStatus::Syncing && self.media_sync.is_none() {
+            self.quit = true;
+        }
+    }
+
+    /// Media sync resumes where it left off, so aborting it loses nothing.
+    fn quit_now(&mut self) {
+        self.abort_media_sync();
+        self.quit = true;
     }
 
     fn perform(&mut self, action: Action, i18n: &I18n) {
@@ -462,4 +555,16 @@ impl State {
             Action::Quit => self.quit(i18n),
         }
     }
+}
+
+/// Moves the focus with arrows and Tab; returns the choice made with Enter.
+fn navigate<T: Copy>(choices: &mut Choices<T>, code: KeyCode) -> Option<T> {
+    match code {
+        KeyCode::Left | KeyCode::Up | KeyCode::BackTab => choices.focus_previous(),
+        KeyCode::Right | KeyCode::Down | KeyCode::Tab => choices.focus_next(),
+        KeyCode::Enter => return choices.focused(),
+        _ => {},
+    }
+
+    None
 }

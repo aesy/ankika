@@ -3,6 +3,7 @@ pub mod collection;
 pub mod host_key;
 pub mod lock;
 pub mod login;
+pub mod media_sync;
 pub mod paths;
 mod remote;
 pub mod session;

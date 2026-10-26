@@ -6,6 +6,7 @@ mod help;
 mod home;
 mod login;
 mod palette;
+mod quit;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -45,6 +46,7 @@ pub fn render(frame: &mut Frame<'_>, state: &State, i18n: &I18n, theme: Theme) -
         Overlay::FullSync(prompt) => {
             full_sync::render(frame, area, prompt, state, i18n, theme, &mut hits);
         },
+        Overlay::Quit(choices) => quit::render(frame, area, choices, state, i18n, theme, &mut hits),
     }
 
     hits

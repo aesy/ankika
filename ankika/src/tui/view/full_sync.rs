@@ -43,14 +43,15 @@ pub fn render(
         Constraint::Length(1),
     ])
     .areas(inner);
-    let buttons: Vec<Button> = prompt
-        .choices()
+    let choices = prompt.choices();
+    let buttons: Vec<Button> = choices
+        .items()
         .iter()
         .map(|&choice| Button {
             label: label(choice, i18n),
             hit: Hit::FullSyncChoice(choice),
             enabled: true,
-            focused: prompt.focused() == Some(choice),
+            focused: choices.focused() == Some(choice),
         })
         .collect();
 

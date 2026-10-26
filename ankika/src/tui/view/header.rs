@@ -40,8 +40,9 @@ pub fn render(
     let username = Line::styled(format!("{} ", session.account.username), theme.muted);
     let username_width = u16::try_from(username.width()).unwrap_or(u16::MAX);
     let (text, color) = match state.sync_status() {
-        SyncStatus::Idle => (i18n.text("action-sync"), theme.accent),
         SyncStatus::Syncing => (i18n.anki().sync_syncing().into_owned(), theme.muted),
+        _ if state.media_syncing() => (i18n.text("sync-status-media"), theme.muted),
+        SyncStatus::Idle => (i18n.text("action-sync"), theme.accent),
         SyncStatus::Synced => (i18n.text("sync-status-synced"), theme.muted),
         SyncStatus::Failed => (i18n.text("sync-status-failed"), theme.error),
     };

@@ -1,10 +1,15 @@
+use std::future::Future;
+
 use anki::collection::Collection;
 use ankika_core::login::{self, LoginError};
+use ankika_core::media_sync;
 use ankika_core::session::{Session, SessionError, SessionStore};
 use ankika_core::sync::{self, FullSyncDirection, FullSyncOutput, NormalSyncOutput, SyncError};
+use futures_util::future::{AbortHandle, Abortable};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::task;
+use tokio::sync::watch;
+use tokio::task::{self, JoinSet};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LogInTaskError {
@@ -24,6 +29,8 @@ pub enum TaskResult {
         result: Result<NormalSyncOutput, SyncError>,
     },
     FullSynced(FullSyncOutput),
+    /// Not sent when the media sync was aborted.
+    MediaSynced(Result<(), SyncError>),
 }
 
 /// Starts background work; results come back to the event loop through the channel.
@@ -31,10 +38,12 @@ pub struct Tasks {
     sender: UnboundedSender<TaskResult>,
     sessions: SessionStore,
     sync_server: Option<String>,
+    syncs: JoinSet<()>,
+    shutdown: watch::Sender<bool>,
 }
 
 impl Tasks {
-    pub const fn new(
+    pub fn new(
         sender: UnboundedSender<TaskResult>,
         sessions: SessionStore,
         sync_server: Option<String>,
@@ -43,6 +52,8 @@ impl Tasks {
             sender,
             sessions,
             sync_server,
+            syncs: JoinSet::new(),
+            shutdown: watch::Sender::new(false),
         }
     }
 
@@ -76,14 +87,11 @@ impl Tasks {
         });
     }
 
-    pub fn sync(&self, mut collection: Collection, mut session: Session) {
-        let sender = self.sender.clone();
+    pub fn sync(&mut self, mut collection: Collection, mut session: Session) {
         let sessions = self.sessions.clone();
-        let runtime = Handle::current();
 
-        // Anki's sync futures hold the database across awaits, so they run on their own thread
-        task::spawn_blocking(move || {
-            let result = runtime.block_on(sync::normal_sync(&mut collection, &session));
+        self.spawn_sync(move || async move {
+            let result = sync::normal_sync(&mut collection, &session).await;
 
             if let Ok(output) = &result
                 && let Some(endpoint) = &output.new_endpoint
@@ -95,30 +103,75 @@ impl Tasks {
                 }
             }
 
-            send(
-                &sender,
-                TaskResult::Synced {
-                    collection,
-                    session,
-                    result,
-                },
-            );
+            Some(TaskResult::Synced {
+                collection,
+                session,
+                result,
+            })
         });
     }
 
     pub fn full_sync(
-        &self,
+        &mut self,
         collection: Collection,
         session: Session,
         direction: FullSyncDirection,
     ) {
+        self.spawn_sync(move || async move {
+            let output = sync::full_sync(collection, &session, direction).await;
+
+            Some(TaskResult::FullSynced(output))
+        });
+    }
+
+    pub fn media_sync(
+        &mut self,
+        collection: &Collection,
+        session: &Session,
+    ) -> Result<AbortHandle, SyncError> {
+        let sync = media_sync::media_sync(collection, session)?;
+        let (abort, registration) = AbortHandle::new_pair();
+
+        self.spawn_sync(move || async move {
+            let result = Abortable::new(sync, registration).await.ok()?;
+
+            Some(TaskResult::MediaSynced(result))
+        });
+
+        Ok(abort)
+    }
+
+    /// Stops the running syncs at their next await and waits for them, so none of them
+    /// outlives the runtime.
+    pub async fn shutdown(mut self) {
+        self.shutdown.send_replace(true);
+
+        while self.syncs.join_next().await.is_some() {}
+    }
+
+    /// Anki's sync futures hold the database across awaits, so each runs on its own thread.
+    fn spawn_sync<F, Fut>(&mut self, start: F)
+    where
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = Option<TaskResult>>,
+    {
         let sender = self.sender.clone();
         let runtime = Handle::current();
+        let mut shutdown = self.shutdown.subscribe();
 
-        task::spawn_blocking(move || {
-            let output = runtime.block_on(sync::full_sync(collection, &session, direction));
+        while self.syncs.try_join_next().is_some() {}
 
-            send(&sender, TaskResult::FullSynced(output));
+        self.syncs.spawn_blocking(move || {
+            let result = runtime.block_on(async {
+                tokio::select! {
+                    result = start() => result,
+                    _ = shutdown.wait_for(|&stopping| stopping) => None,
+                }
+            });
+
+            if let Some(result) = result {
+                send(&sender, result);
+            }
         });
     }
 }
