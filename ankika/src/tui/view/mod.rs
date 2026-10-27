@@ -1,6 +1,7 @@
 mod add;
 mod browser;
 mod buttons;
+mod chart;
 mod custom_study;
 mod footer;
 mod full_sync;
@@ -13,6 +14,7 @@ mod overview;
 mod prompt;
 mod quit;
 mod review;
+mod stats;
 mod tag_input;
 mod tags;
 mod unbury;
@@ -55,6 +57,8 @@ pub fn render(
 
     if let Some(browser) = state.browser() {
         browser::render(frame, main_area, browser, i18n, theme, &mut hits);
+    } else if let Some(screen) = state.stats_screen() {
+        stats::render(frame, main_area, screen, i18n, theme);
     } else {
         render_main(frame, main_area, state, images, i18n, theme, &mut hits);
     }

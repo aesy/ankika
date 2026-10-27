@@ -19,6 +19,7 @@ mod palette;
 mod quit_prompt;
 mod review;
 mod state;
+mod stats_screen;
 mod tag_input;
 mod tasks;
 mod terminal;

@@ -171,38 +171,22 @@ impl State {
         let key = code;
 
         match &mut self.overlay {
-            Overlay::ChangeDeck(list) => match key {
-                KeyCode::Up => list.select_previous(),
-                KeyCode::Down => list.select_next(),
-                KeyCode::Backspace => list.pop(),
-                KeyCode::Enter => {
-                    if let Some(&deck) = list.selected_value() {
-                        self.move_to_deck(deck, i18n);
-                    }
-                },
-                _ => {
-                    if let Some(character) = typed {
-                        list.push(character);
-                    }
-                },
+            Overlay::ChangeDeck(list) => {
+                if list.handle_key(key, typed)
+                    && let Some(&deck) = list.selected_value()
+                {
+                    self.move_to_deck(deck, i18n);
+                }
             },
-            Overlay::SortBy(list) => match key {
-                KeyCode::Up => list.select_previous(),
-                KeyCode::Down => list.select_next(),
-                KeyCode::Backspace => list.pop(),
-                KeyCode::Enter => {
+            Overlay::SortBy(list) => {
+                if list.handle_key(key, typed) {
                     let column = list.selected_value().copied();
                     self.overlay = Overlay::None;
 
                     if let Some(column) = column {
                         self.sort_by(column, i18n);
                     }
-                },
-                _ => {
-                    if let Some(character) = typed {
-                        list.push(character);
-                    }
-                },
+                }
             },
             Overlay::Tags { input, .. } => match key {
                 KeyCode::Tab => {

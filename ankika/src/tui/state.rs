@@ -8,6 +8,7 @@ use ankika_core::note_edit::NoteText;
 use ankika_core::overview::{self, OverviewError, Unbury};
 use ankika_core::review::{self, Rating, ReviewError, Side, Sound, SoundRef, StudyCard};
 use ankika_core::session::Session;
+use ankika_core::stats;
 use ankika_core::sync::{
     FullSyncDirection, FullSyncOutput, FullSyncRequired, NormalSyncOutput, SyncError,
 };
@@ -36,6 +37,7 @@ use crate::tui::overview::DeckScreen;
 use crate::tui::palette::{self, Palette};
 use crate::tui::quit_prompt::{self, QuitChoice};
 use crate::tui::review::{Review, Stage};
+use crate::tui::stats_screen::StatsScreen;
 use crate::tui::tag_input::TagInput;
 use crate::tui::tasks::{TaskResult, Tasks};
 use crate::tui::unbury_prompt::{self, UnburyChoice};
@@ -91,6 +93,8 @@ pub struct State {
     decks: DeckList,
     /// Shown over everything else; closing it returns to what was there.
     browser: Option<Browser>,
+    /// Shown over the deck list or overview.
+    stats_screen: Option<StatsScreen>,
     /// The deck overview; studying happens on top of it.
     deck_screen: Option<DeckScreen>,
     review: Option<Review>,
@@ -126,6 +130,7 @@ impl State {
             playing: None,
             decks: DeckList::default(),
             browser: None,
+            stats_screen: None,
             deck_screen: None,
             review: None,
             edit: None,
@@ -166,6 +171,10 @@ impl State {
         self.browser.as_ref()
     }
 
+    pub const fn stats_screen(&self) -> Option<&StatsScreen> {
+        self.stats_screen.as_ref()
+    }
+
     pub const fn deck_screen(&self) -> Option<&DeckScreen> {
         self.deck_screen.as_ref()
     }
@@ -204,6 +213,7 @@ impl State {
                     _ => Context::Browser,
                 }
             },
+            Overlay::None if self.stats_screen.is_some() => Context::Stats,
             Overlay::None => match &self.review {
                 None => match &self.deck_screen {
                     Some(screen) if screen.is_filtered() => Context::FilteredOverview,
@@ -506,16 +516,10 @@ impl State {
         };
 
         match &mut self.overlay {
-            Overlay::Palette(palette) => match key.code {
-                KeyCode::Up => palette.select_previous(),
-                KeyCode::Down => palette.select_next(),
-                KeyCode::Backspace => palette.pop(),
-                KeyCode::Enter => self.run_palette_selection(i18n),
-                _ => {
-                    if let Some(character) = typed {
-                        palette.push(character);
-                    }
-                },
+            Overlay::Palette(palette) => {
+                if palette.handle_key(key.code, typed) {
+                    self.run_palette_selection(i18n);
+                }
             },
             Overlay::Login(form) => match key.code {
                 KeyCode::Up | KeyCode::BackTab => form.focus_previous(),
@@ -568,6 +572,11 @@ impl State {
                 self.handle_browser_overlay_key(key.code, typed, i18n);
             },
             Overlay::None if self.browser.is_some() => self.handle_browser_key(key.code, typed),
+            Overlay::None if self.stats_screen.is_some() => {
+                if let Some(screen) = &mut self.stats_screen {
+                    screen.handle_key(key.code);
+                }
+            },
             Overlay::None if self.review.is_some() => self.handle_review_key(key.code, typed),
             Overlay::None if self.deck_screen.is_some() => {},
             Overlay::None => match key.code {
@@ -615,6 +624,11 @@ impl State {
                         browser.move_cursor(-1);
                     }
                 },
+                Overlay::None if self.stats_screen.is_some() => {
+                    if let Some(screen) = &mut self.stats_screen {
+                        screen.scroll_by(-1);
+                    }
+                },
                 Overlay::None => match &mut self.review {
                     Some(review) => review.scroll_up(),
                     None if self.deck_screen.is_some() => {},
@@ -629,6 +643,11 @@ impl State {
                 Overlay::None if self.browser.is_some() => {
                     if let Some(browser) = &mut self.browser {
                         browser.move_cursor(1);
+                    }
+                },
+                Overlay::None if self.stats_screen.is_some() => {
+                    if let Some(screen) = &mut self.stats_screen {
+                        screen.scroll_by(1);
                     }
                 },
                 Overlay::None => match &mut self.review {
@@ -798,9 +817,28 @@ impl State {
         self.refresh_deck_screen(i18n);
     }
 
+    /// Loads the statistics for the screen's scope and period, unless a sync has the
+    /// collection; they load once it is back.
+    fn load_stats(&mut self, i18n: &I18n) {
+        let (Some(screen), Some(collection)) = (&mut self.stats_screen, &mut self.collection)
+        else {
+            return;
+        };
+
+        match stats::load(collection, screen.scope(), screen.period()) {
+            Ok(stats) => screen.set_stats(stats),
+            Err(error) => {
+                tracing::warn!(?error, "Failed to load the statistics");
+                self.notice = Some(error.anki_error().message(i18n.anki()));
+            },
+        }
+    }
+
     /// Reloads what's on screen once the collection is available: the review if one is
     /// running, otherwise the overview.
     fn refresh_deck_screen(&mut self, i18n: &I18n) {
+        self.load_stats(i18n);
+
         if self.review.is_some() {
             self.resume_review(i18n);
             return;
@@ -1136,17 +1174,10 @@ impl State {
         };
 
         if let Some(picker) = form.picker_mut() {
-            match key {
-                KeyCode::Up => picker.select_previous(),
-                KeyCode::Down => picker.select_next(),
-                KeyCode::Backspace => picker.pop(),
-                KeyCode::Enter => form.confirm_picker(),
-                _ => {
-                    if let Some(character) = typed {
-                        picker.push(character);
-                    }
-                },
+            if picker.handle_key(key, typed) {
+                form.confirm_picker();
             }
+
             return;
         }
 
@@ -1471,6 +1502,25 @@ impl State {
             Action::Card(action) => self.card_action(action, i18n),
             Action::EditNote => self.request_edit(i18n),
             Action::OpenBrowser => self.open_browser(i18n),
+            Action::OpenStats => {
+                self.stats_screen = Some(StatsScreen::new());
+                self.load_stats(i18n);
+            },
+            Action::CloseStats => self.stats_screen = None,
+            Action::ToggleStatsScope => {
+                if let Some(screen) = &mut self.stats_screen {
+                    screen.toggle_scope();
+                }
+
+                self.load_stats(i18n);
+            },
+            Action::NextPeriod | Action::PreviousPeriod => {
+                if let Some(screen) = &mut self.stats_screen {
+                    screen.shift_period(action == Action::NextPeriod);
+                }
+
+                self.load_stats(i18n);
+            },
             // Rebuild and Empty are for filtered decks; the rest only work while the browser
             // is open, which handles them first
             Action::Rebuild

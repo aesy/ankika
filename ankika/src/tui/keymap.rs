@@ -17,6 +17,7 @@ pub enum Context {
     Add,
     Browser,
     BrowserSearch,
+    Stats,
     Overview,
     FilteredOverview,
     ReviewQuestion,
@@ -151,6 +152,7 @@ const MAIN: &[Binding] = &[
     Binding::named(KeyCode::Enter, "Enter", Action::OpenDeck),
     Binding::key('a', Action::AddNote),
     Binding::key('b', Action::OpenBrowser),
+    Binding::key('t', Action::OpenStats),
     Binding::key('?', Action::ToggleHelp),
     Binding::key(':', Action::OpenPalette),
     Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
@@ -202,6 +204,19 @@ const BROWSER: &[Binding] = &[
     QUIT,
 ];
 
+const STATS: &[Binding] = &[
+    Binding::named(KeyCode::Left, "Left", Action::PreviousPeriod),
+    Binding::named(KeyCode::Right, "Right", Action::NextPeriod),
+    Binding::key('c', Action::ToggleStatsScope),
+    Binding::named(KeyCode::Esc, "Esc", Action::CloseStats),
+    Binding::key('q', Action::CloseStats),
+    Binding::key('s', Action::Sync),
+    Binding::key('?', Action::ToggleHelp),
+    Binding::key(':', Action::OpenPalette),
+    Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
+    QUIT,
+];
+
 const BROWSER_SEARCH: &[Binding] = &[
     Binding::named(KeyCode::Enter, "Enter", Action::RunSearch),
     Binding::named(KeyCode::Esc, "Esc", Action::LeaveSearch),
@@ -214,6 +229,7 @@ const OVERVIEW: &[Binding] = &[
     Binding::named(KeyCode::Enter, "Enter", Action::Study),
     Binding::key('a', Action::AddNote),
     Binding::key('b', Action::OpenBrowser),
+    Binding::key('t', Action::OpenStats),
     Binding::key('c', Action::CustomStudy),
     Binding::key('u', Action::Unbury),
     CLOSE_OVERVIEW,
@@ -230,6 +246,7 @@ const FILTERED_OVERVIEW: &[Binding] = &[
     Binding::named(KeyCode::Enter, "Enter", Action::Study),
     Binding::key('a', Action::AddNote),
     Binding::key('b', Action::OpenBrowser),
+    Binding::key('t', Action::OpenStats),
     Binding::key('r', Action::Rebuild),
     Binding::key('e', Action::Empty),
     Binding::key('u', Action::Unbury),
@@ -319,6 +336,7 @@ const fn bindings(context: Context) -> &'static [Binding] {
         | Context::Add => OVERLAY,
         Context::Browser => BROWSER,
         Context::BrowserSearch => BROWSER_SEARCH,
+        Context::Stats => STATS,
         Context::Overview => OVERVIEW,
         Context::FilteredOverview => FILTERED_OVERVIEW,
         Context::ReviewQuestion => REVIEW_QUESTION,
@@ -397,6 +415,7 @@ mod tests {
                 (Action::OpenDeck, vec!["Enter".to_owned()]),
                 (Action::AddNote, vec!["a".to_owned()]),
                 (Action::OpenBrowser, vec!["b".to_owned()]),
+                (Action::OpenStats, vec!["t".to_owned()]),
                 (Action::ToggleHelp, vec!["?".to_owned()]),
                 (
                     Action::OpenPalette,

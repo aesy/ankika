@@ -1,3 +1,4 @@
+use crossterm::event::KeyCode;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher};
 
@@ -58,6 +59,24 @@ impl<T: Clone> FuzzyList<T> {
         {
             self.selected = index;
         }
+    }
+
+    /// Moves with the arrows and edits the query with typing. Returns whether Enter
+    /// confirmed the selection.
+    pub fn handle_key(&mut self, code: KeyCode, typed: Option<char>) -> bool {
+        match code {
+            KeyCode::Up => self.select_previous(),
+            KeyCode::Down => self.select_next(),
+            KeyCode::Backspace => self.pop(),
+            KeyCode::Enter => return true,
+            _ => {
+                if let Some(character) = typed {
+                    self.push(character);
+                }
+            },
+        }
+
+        false
     }
 
     pub fn push(&mut self, character: char) {

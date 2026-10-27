@@ -39,6 +39,11 @@ pub enum Action {
     AddTags,
     RemoveTags,
     SortBy,
+    OpenStats,
+    CloseStats,
+    ToggleStatsScope,
+    NextPeriod,
+    PreviousPeriod,
     CloseReview,
     Quit,
 }
@@ -83,7 +88,11 @@ impl Action {
             Self::AddTags => i18n.anki().browsing_add_tags2().into_owned(),
             Self::RemoveTags => i18n.anki().browsing_remove_tags().into_owned(),
             Self::SortBy => i18n.text("action-sort-by"),
-            Self::LeaveSearch | Self::CloseReview => i18n.text("action-back"),
+            Self::OpenStats => i18n.anki().statistics_title().into_owned(),
+            Self::ToggleStatsScope => i18n.text("stats-toggle-scope"),
+            Self::NextPeriod => i18n.text("stats-next-period"),
+            Self::PreviousPeriod => i18n.text("stats-previous-period"),
+            Self::LeaveSearch | Self::CloseReview | Self::CloseStats => i18n.text("action-back"),
             Self::Quit => i18n.text("action-quit"),
         }
     }

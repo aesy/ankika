@@ -14,4 +14,5 @@ pub mod paths;
 mod remote;
 pub mod review;
 pub mod session;
+pub mod stats;
 pub mod sync;

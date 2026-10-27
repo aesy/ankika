@@ -44,3 +44,10 @@ action-select-all = Select All
 action-sort-by = Sort By
 action-browse = Browse
 error-browser-setting = Could not store the browser setting. See the log for details.
+
+stats-toggle-scope = Deck / Collection
+stats-next-period = Longer
+stats-previous-period = Shorter
+stats-period-month = 1 month
+stats-period-three-months = 3 months
+stats-period-year = 1 year
