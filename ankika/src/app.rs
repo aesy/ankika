@@ -51,7 +51,7 @@ pub async fn run(cli: Cli) -> Result<(), AppError> {
             let _lock = CollectionLock::acquire(&paths)?;
             let i18n = I18n::new()?;
             let collection = collection::open(&paths, i18n.anki().clone())?;
-            tui::run(&i18n, &paths, collection, cli.sync_server).await?;
+            tui::run(&i18n, &paths, collection, cli.sync_server, cli.images).await?;
         },
         Some(Command::Login(args)) => login::run(&paths, args, cli.sync_server).await?,
         Some(Command::Logout) => logout::run(&paths)?,

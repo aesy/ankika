@@ -21,8 +21,16 @@ const MIXED_CASE_CLASSES: [(&str, &str); 3] = [
     ("class=typeMissed", "class=typemissed"),
 ];
 
-/// Renders card HTML as styled lines wrapped to `width`.
-pub fn render(html: &str, width: u16, theme: Theme) -> Vec<Line<'static>> {
+/// A piece of a rendered card, top to bottom.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CardBlock {
+    Line(Line<'static>),
+    /// An image's `src`, drawn below the text it appeared in.
+    Image(String),
+}
+
+/// Renders card HTML as styled lines wrapped to `width`, with images split out.
+pub fn render(html: &str, width: u16, theme: Theme) -> Vec<CardBlock> {
     let config = html2text::config::with_decorator(CardDecorator(RichDecorator::new()))
         .link_footnotes(false)
         // Inline `style` attributes; the card's own stylesheet is never passed in
@@ -36,25 +44,47 @@ pub fn render(html: &str, width: u16, theme: Theme) -> Vec<Line<'static>> {
         .and_then(|config| config.lines_from_read(html.as_bytes(), usize::from(width.max(1))));
 
     match lines {
-        Ok(lines) => lines
-            .iter()
-            .map(|line| {
-                let line = line
-                    .tagged_strings()
-                    .map(|string| Span::styled(string.s.clone(), style(&string.tag, theme)))
-                    .collect::<Line<'static>>();
+        Ok(lines) => {
+            let mut blocks = Vec::new();
 
-                if line.to_string().trim() == RULE_MARKER {
-                    Line::styled("─".repeat(usize::from(width)), theme.border)
-                } else {
-                    line
+            for line in &lines {
+                let mut images = Vec::new();
+                let spans: Line<'static> = line
+                    .tagged_strings()
+                    .filter_map(|string| {
+                        let image = string.tag.iter().find_map(|annotation| match annotation {
+                            RichAnnotation::Image(src) => Some(src.clone()),
+                            _ => None,
+                        });
+
+                        if let Some(src) = image {
+                            images.push(src);
+                            return None;
+                        }
+
+                        Some(Span::styled(string.s.clone(), style(&string.tag, theme)))
+                    })
+                    .collect();
+                let text = spans.to_string();
+
+                if text.trim() == RULE_MARKER {
+                    blocks.push(CardBlock::Line(Line::styled(
+                        "─".repeat(usize::from(width)),
+                        theme.border,
+                    )));
+                } else if images.is_empty() || !text.trim().is_empty() {
+                    blocks.push(CardBlock::Line(spans));
                 }
-            })
-            .collect(),
+
+                blocks.extend(images.into_iter().map(CardBlock::Image));
+            }
+
+            blocks
+        },
         Err(error) => {
             tracing::warn!(?error, "Failed to render card HTML");
             html.lines()
-                .map(|line| Line::raw(line.to_owned()))
+                .map(|line| CardBlock::Line(Line::raw(line.to_owned())))
                 .collect()
         },
     }
@@ -232,13 +262,23 @@ impl TextDecorator for CardDecorator {
 mod tests {
     use super::*;
 
+    fn lines(blocks: Vec<CardBlock>) -> Vec<Line<'static>> {
+        blocks
+            .into_iter()
+            .filter_map(|block| match block {
+                CardBlock::Line(line) => Some(line),
+                CardBlock::Image(_) => None,
+            })
+            .collect()
+    }
+
     fn text(lines: &[Line<'_>]) -> Vec<String> {
         lines.iter().map(ToString::to_string).collect()
     }
 
     #[test]
     fn renders_line_breaks_and_bold() {
-        let lines = render("<b>front</b><br>back", 40, Theme::detect());
+        let lines = lines(render("<b>front</b><br>back", 40, Theme::detect()));
 
         assert_eq!(text(&lines), vec!["front", "back"]);
         assert!(
@@ -251,18 +291,18 @@ mod tests {
 
     #[test]
     fn draws_rules() {
-        let lines = render("front<hr id=answer>back", 10, Theme::detect());
+        let lines = lines(render("front<hr id=answer>back", 10, Theme::detect()));
 
         assert_eq!(text(&lines), vec!["front", &"─".repeat(10), "back"]);
     }
 
     #[test]
     fn applies_inline_colors() {
-        let lines = render(
+        let lines = lines(render(
             r#"<span style="color: #ff8800">a</span> <font color="red">b</font>"#,
             40,
             Theme::detect(),
-        );
+        ));
         let colors: Vec<_> = lines[0]
             .spans
             .iter()
@@ -274,11 +314,11 @@ mod tests {
 
     #[test]
     fn colors_typed_answer_comparison() {
-        let lines = render(
+        let lines = lines(render(
             "<code id=typeans><span class=typeGood>a</span><span class=typeBad>b</span></code>",
             40,
             Theme::detect(),
-        );
+        ));
         let colors: Vec<_> = lines[0]
             .spans
             .iter()
@@ -292,15 +332,30 @@ mod tests {
     }
 
     #[test]
-    fn shows_images_as_placeholders() {
-        let lines = render(r#"<img src="cat.jpg">"#, 40, Theme::detect());
+    fn splits_out_images() {
+        let blocks = render(
+            r#"Cat: <img src="cat.jpg"><br><img src="dog.png">"#,
+            40,
+            Theme::detect(),
+        );
 
-        assert_eq!(text(&lines), vec!["[image: cat.jpg]"]);
+        assert_eq!(
+            blocks,
+            vec![
+                CardBlock::Line(Line::from("Cat: ")),
+                CardBlock::Image("cat.jpg".to_owned()),
+                CardBlock::Image("dog.png".to_owned()),
+            ]
+        );
     }
 
     #[test]
     fn colors_clozes() {
-        let lines = render(r#"a <span class="cloze">[...]</span>"#, 40, Theme::detect());
+        let lines = lines(render(
+            r#"a <span class="cloze">[...]</span>"#,
+            40,
+            Theme::detect(),
+        ));
         let cloze = lines[0].spans.iter().find(|span| span.content == "[...]");
 
         assert_eq!(

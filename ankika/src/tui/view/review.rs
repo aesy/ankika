@@ -1,14 +1,16 @@
 use ankika_core::review::Rating;
+use ankika_core::review::StudyCard;
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout, Margin, Rect};
+use ratatui::layout::{Constraint, Layout, Margin, Rect, Size};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
 use crate::i18n::I18n;
 use crate::tui::action::Action;
-use crate::tui::card_text;
+use crate::tui::card_text::{self, CardBlock};
 use crate::tui::hit_map::{Hit, HitMap};
+use crate::tui::images::Images;
 use crate::tui::review::{Review, Stage};
 use crate::tui::state::State;
 use crate::tui::theme::Theme;
@@ -17,15 +19,24 @@ use crate::tui::view::buttons::{self, Button, GAP};
 const BOTTOM_HEIGHT: u16 = 3;
 const INPUT_WIDTH: u16 = 50;
 
+/// What the review screen needs besides the review itself.
+pub struct Context<'a> {
+    pub state: &'a State,
+    pub images: &'a Images,
+    pub i18n: &'a I18n,
+    pub theme: Theme,
+}
+
 pub fn render(
     frame: &mut Frame<'_>,
     area: Rect,
     review: &Review,
-    state: &State,
-    i18n: &I18n,
-    theme: Theme,
+    context: &Context<'_>,
     hits: &mut HitMap,
 ) {
+    let Context {
+        state, i18n, theme, ..
+    } = *context;
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(Style::new().fg(theme.border))
@@ -44,7 +55,7 @@ pub fn render(
             frame.render_widget(Paragraph::new(text).centered(), content_area);
         },
         Stage::Question { card, typed } => {
-            render_card(frame, content_area, &card.question, review, theme);
+            render_card(frame, content_area, card, &card.question, review, context);
 
             let [input_area, _, button_area] = Layout::vertical([
                 Constraint::Length(1),
@@ -67,7 +78,7 @@ pub fn render(
             render_centered(frame, button_area, &[(show, None)], state, theme, hits);
         },
         Stage::Answer { card, html } => {
-            render_card(frame, content_area, html, review, theme);
+            render_card(frame, content_area, card, html, review, context);
 
             let buttons: Vec<(Button, Option<&str>)> = Rating::ALL
                 .iter()
@@ -122,17 +133,68 @@ pub fn render(
     }
 }
 
-fn render_card(frame: &mut Frame<'_>, area: Rect, html: &str, review: &Review, theme: Theme) {
-    let lines = card_text::render(html, area.width, theme);
-    let height = u16::try_from(lines.len()).unwrap_or(u16::MAX);
+fn render_card(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    card: &StudyCard,
+    html: &str,
+    review: &Review,
+    context: &Context<'_>,
+) {
+    let Context { images, theme, .. } = *context;
+
+    images.show_card(card.id);
+
+    // Keeps room for the text around an image
+    let image_space = Size::new(area.width, (area.height / 2).max(1));
+    let items: Vec<(CardBlock, Option<Size>)> = card_text::render(html, area.width, theme)
+        .into_iter()
+        .map(|block| {
+            let size = match &block {
+                CardBlock::Line(_) => None,
+                CardBlock::Image(src) => images.size(src, image_space),
+            };
+
+            (block, size)
+        })
+        .collect();
+    let height: u16 = items
+        .iter()
+        .map(|(_, size)| size.map_or(1, |size| size.height))
+        .sum();
 
     review.set_max_scroll(height.saturating_sub(area.height));
 
-    let paragraph = Paragraph::new(lines)
-        .centered()
-        .scroll((review.scroll(), 0));
+    // Rows above the area after scrolling; negative until the first visible block
+    let mut top = -i32::from(review.scroll());
 
-    frame.render_widget(paragraph, area);
+    for (block, size) in items {
+        let block_height = size.map_or(1, |size| size.height);
+        let bottom = top + i32::from(block_height);
+
+        // Only whole blocks, since graphics can't be drawn partially
+        if let (Ok(y), true) = (u16::try_from(top), bottom <= i32::from(area.height)) {
+            let row = Rect::new(area.x, area.y + y, area.width, block_height);
+
+            match (block, size) {
+                (CardBlock::Image(src), Some(size)) => {
+                    images.render(
+                        frame,
+                        row.centered_horizontally(Constraint::Length(size.width)),
+                        &src,
+                    );
+                },
+                (CardBlock::Image(src), None) => {
+                    let placeholder = Line::styled(format!("[image: {src}]"), theme.muted);
+
+                    frame.render_widget(placeholder.centered(), row);
+                },
+                (CardBlock::Line(line), _) => frame.render_widget(line.centered(), row),
+            }
+        }
+
+        top = bottom;
+    }
 }
 
 fn render_input(frame: &mut Frame<'_>, area: Rect, typed: &str, theme: Theme) {

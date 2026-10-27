@@ -16,10 +16,17 @@ use ratatui::widgets::{Block, BorderType, Clear};
 
 use crate::i18n::I18n;
 use crate::tui::hit_map::{Hit, HitMap};
+use crate::tui::images::Images;
 use crate::tui::state::{Overlay, State};
 use crate::tui::theme::Theme;
 
-pub fn render(frame: &mut Frame<'_>, state: &State, i18n: &I18n, theme: Theme) -> HitMap {
+pub fn render(
+    frame: &mut Frame<'_>,
+    state: &State,
+    images: &Images,
+    i18n: &I18n,
+    theme: Theme,
+) -> HitMap {
     let mut hits = HitMap::default();
     let area = frame.area();
 
@@ -37,7 +44,16 @@ pub fn render(frame: &mut Frame<'_>, state: &State, i18n: &I18n, theme: Theme) -
 
     header::render(frame, header_area, state, i18n, theme, &mut hits);
     match state.review() {
-        Some(review) => review::render(frame, main_area, review, state, i18n, theme, &mut hits),
+        Some(review) => {
+            let context = review::Context {
+                state,
+                images,
+                i18n,
+                theme,
+            };
+
+            review::render(frame, main_area, review, &context, &mut hits);
+        },
         None => home::render(frame, main_area, state, i18n, theme, &mut hits),
     }
     footer::render(frame, footer_area, state, i18n, theme, &mut hits);

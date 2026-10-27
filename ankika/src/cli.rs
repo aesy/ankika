@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{ArgAction, Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -24,9 +24,31 @@ pub struct Cli {
     #[arg(long, global = true, env = "ANKIKA_SYNC_SERVER", value_name = "URL")]
     pub sync_server: Option<String>,
 
+    /// How to draw card images; `auto` asks the terminal what it supports
+    #[arg(
+        long,
+        global = true,
+        env = "ANKIKA_IMAGES",
+        value_name = "MODE",
+        default_value = "auto"
+    )]
+    pub images: ImageMode,
+
     /// Log more detail: -v for debug, -vv for trace. `RUST_LOG` takes precedence
     #[arg(short, long, global = true, action = ArgAction::Count)]
     pub verbose: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ImageMode {
+    Auto,
+    Kitty,
+    Sixel,
+    Iterm2,
+    /// Colored Unicode half blocks, which work in any terminal
+    Halfblocks,
+    /// Placeholders with the file name instead of images
+    Off,
 }
 
 #[derive(Debug, Subcommand)]

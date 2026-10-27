@@ -5,6 +5,7 @@ mod deck_list;
 mod error_text;
 mod full_sync_prompt;
 mod hit_map;
+mod images;
 mod keymap;
 mod login_form;
 mod palette;
@@ -27,8 +28,10 @@ use futures_util::StreamExt;
 use ratatui::DefaultTerminal;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 
+use crate::cli::ImageMode;
 use crate::i18n::I18n;
 use crate::tui::hit_map::HitMap;
+use crate::tui::images::Images;
 use crate::tui::state::State;
 use crate::tui::tasks::{TaskResult, Tasks};
 use crate::tui::theme::Theme;
@@ -52,6 +55,7 @@ pub async fn run(
     paths: &Paths,
     collection: Collection,
     sync_server: Option<String>,
+    image_mode: ImageMode,
 ) -> Result<(), TuiError> {
     let sessions = SessionStore::new(paths);
     let (sender, receiver) = mpsc::unbounded_channel();
@@ -73,7 +77,8 @@ pub async fn run(
     state.start_sync();
 
     let mut terminal = terminal::init().map_err(TuiError::Init)?;
-    let result = event_loop(&mut terminal, &mut state, receiver, i18n).await;
+    let images = Images::detect(image_mode, paths.media_dir());
+    let result = event_loop(&mut terminal, &mut state, &images, receiver, i18n).await;
     let restored = terminal::restore().map_err(TuiError::Restore);
 
     close(&mut state);
@@ -104,6 +109,7 @@ fn close(state: &mut State) {
 async fn event_loop(
     terminal: &mut DefaultTerminal,
     state: &mut State,
+    images: &Images,
     mut results: UnboundedReceiver<TaskResult>,
     i18n: &I18n,
 ) -> Result<(), TuiError> {
@@ -114,7 +120,7 @@ async fn event_loop(
         let mut hits = HitMap::default();
 
         terminal
-            .draw(|frame| hits = view::render(frame, state, i18n, theme))
+            .draw(|frame| hits = view::render(frame, state, images, i18n, theme))
             .map_err(TuiError::Draw)?;
         state.set_hits(hits);
 

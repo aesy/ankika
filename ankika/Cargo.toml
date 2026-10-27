@@ -20,8 +20,10 @@ crossterm = { workspace = true, features = ["event-stream"] }
 fluent-bundle = { workspace = true }
 futures-util = { workspace = true }
 html2text = { workspace = true }
+image = { workspace = true }
 nucleo-matcher = { workspace = true }
 ratatui = { workspace = true }
+ratatui-image = { workspace = true }
 rpassword = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }

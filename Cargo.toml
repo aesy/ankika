@@ -29,9 +29,13 @@ directories = "6.0.0"
 fluent-bundle = "0.16.0"
 futures-util = "0.3.34"
 html2text = { version = "0.17.4", features = ["css"] }
+# Decoders only; the default `rayon` feature isn't needed for one card's images
+image = { version = "0.25.10", default-features = false, features = ["default-formats"] }
 keyring = "4.2.0"
 nucleo-matcher = "0.3.1"
 ratatui = "0.30.2"
+# Without `chafa-dyn`, so no system library is loaded
+ratatui-image = { version = "11.1.0", default-features = false, features = ["crossterm"] }
 # Must match the version `anki` uses, since `sync_login` takes its `reqwest::Client`
 reqwest = { version = "0.12.28", default-features = false }
 rpassword = "7.5.4"
