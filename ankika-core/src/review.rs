@@ -17,6 +17,7 @@ use anki_proto::card_rendering::{
     CompareAnswerRequest, ExtractAvTagsRequest, ExtractClozeForTypingRequest,
 };
 
+use crate::card_actions::{self, CardActionError, Marks};
 use crate::remote::english;
 
 #[derive(Debug, thiserror::Error)]
@@ -56,6 +57,8 @@ pub enum ReviewError {
         #[source]
         source: AnkiError,
     },
+    #[error(transparent)]
+    LoadMarks(CardActionError),
     #[error("Failed to undo: {}", english(source))]
     Undo {
         #[source]
@@ -82,6 +85,7 @@ impl ReviewError {
             | Self::Answer { source }
             | Self::Undo { source }
             | Self::StudiedToday { source } => source,
+            Self::LoadMarks(error) => error.anki_error(),
         }
     }
 }
@@ -194,6 +198,9 @@ impl Sounds {
 /// A card ready to show, with its question and answer as HTML.
 pub struct StudyCard {
     pub id: CardId,
+    pub note_id: NoteId,
+    /// Kept up to date by the caller when it changes them.
+    pub marks: Marks,
     pub queue: Queue,
     /// The question, with any type-in field removed; the caller shows its own input.
     /// Sounds are left as their `SoundRef::tag`.
@@ -270,6 +277,7 @@ pub fn next_card(collection: &mut Collection, tr: &I18n) -> Result<Option<NextCa
         replay_question: !config.inner.skip_question_when_replaying_answer,
     };
     let (question, answer) = (question.text, answer.text);
+    let marks = card_actions::marks(collection, card.id()).map_err(ReviewError::LoadMarks)?;
     let type_answer = type_field(&question)
         .map(|field| load_type_answer(collection, card.note_id(), card.template_idx(), field))
         .transpose()?;
@@ -298,6 +306,8 @@ pub fn next_card(collection: &mut Collection, tr: &I18n) -> Result<Option<NextCa
     Ok(Some(NextCard {
         card: StudyCard {
             id: card.id(),
+            note_id: card.note_id(),
+            marks,
             queue,
             question,
             answer,

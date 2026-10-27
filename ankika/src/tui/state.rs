@@ -1,7 +1,9 @@
 use anki::collection::Collection;
 use anki::decks::DeckId;
+use ankika_core::card_actions::{self, CardAction, Flag, Outcome};
 use ankika_core::collection::CollectionError;
 use ankika_core::decks;
+use ankika_core::note_edit::NoteText;
 use ankika_core::review::{self, Rating, ReviewError, Side, Sound, SoundRef, StudyCard};
 use ankika_core::session::Session;
 use ankika_core::sync::{
@@ -18,6 +20,7 @@ use crate::tui::action::Action;
 use crate::tui::audio::{Audio, AudioEvent, Track};
 use crate::tui::choices::Choices;
 use crate::tui::deck_list::DeckList;
+use crate::tui::editor::EditorError;
 use crate::tui::error_text;
 use crate::tui::full_sync_prompt::{Choice, FullSyncPrompt};
 use crate::tui::hit_map::{Hit, HitMap};
@@ -55,6 +58,8 @@ pub struct State {
     playing: Option<SoundRef>,
     decks: DeckList,
     review: Option<Review>,
+    /// A note waiting for the event loop to open it in the editor.
+    edit: Option<NoteText>,
     /// Collapsed states changed while a sync had the collection.
     pending_collapse: Vec<(DeckId, bool)>,
     sync: SyncStatus,
@@ -85,6 +90,7 @@ impl State {
             playing: None,
             decks: DeckList::default(),
             review: None,
+            edit: None,
             pending_collapse: Vec::new(),
             sync: SyncStatus::Idle,
             media_sync: None,
@@ -624,6 +630,10 @@ impl State {
     }
 
     fn show_answer(&mut self, i18n: &I18n) {
+        self.reveal(true, i18n);
+    }
+
+    fn reveal(&mut self, play: bool, i18n: &I18n) {
         let (Some(review), Some(collection)) = (&mut self.review, &mut self.collection) else {
             return;
         };
@@ -634,8 +644,113 @@ impl State {
         match card.answer(collection, typed) {
             Ok(html) => {
                 review.show_answer(html);
-                self.play_side(false);
+
+                if play {
+                    self.play_side(false);
+                }
             },
+            Err(error) => self.fail_review(&error, i18n),
+        }
+    }
+
+    fn card_action(&mut self, action: CardAction, i18n: &I18n) {
+        let (Some(review), Some(collection)) = (&mut self.review, &mut self.collection) else {
+            return;
+        };
+        let Some(card) = review.card() else {
+            return;
+        };
+        let outcome = card_actions::apply(collection, card.id, card.note_id, card.marks, action);
+
+        let outcome = match outcome {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                tracing::warn!(?error, ?action, "Card action failed");
+                self.notice = Some(error_text::card_action(&error, i18n));
+                return;
+            },
+        };
+
+        self.notice = outcome_notice(outcome, i18n);
+
+        match outcome {
+            Outcome::Marked(marked) => {
+                if let Some(card) = review.card_mut() {
+                    card.marks.marked = marked;
+                }
+            },
+            Outcome::Flagged(flag) => {
+                if let Some(card) = review.card_mut() {
+                    card.marks.flag = flag;
+                }
+            },
+            _ => match next_card(collection, review, i18n) {
+                Ok(()) => self.play_side(false),
+                Err(error) => self.fail_review(&error, i18n),
+            },
+        }
+    }
+
+    fn request_edit(&mut self, i18n: &I18n) {
+        let (Some(review), Some(collection)) = (&self.review, &mut self.collection) else {
+            return;
+        };
+        let Some(card) = review.card() else {
+            return;
+        };
+
+        match NoteText::load(collection, card.note_id) {
+            Ok(note) => self.edit = Some(note),
+            Err(error) => {
+                tracing::warn!(?error, "Failed to load the note for editing");
+                self.notice = Some(error_text::note_edit(&error, i18n));
+            },
+        }
+    }
+
+    /// A note to hand to the editor, which the event loop runs.
+    pub const fn take_edit(&mut self) -> Option<NoteText> {
+        self.edit.take()
+    }
+
+    /// Saves what came back from the editor and shows the card again on the same side.
+    pub fn finish_edit(
+        &mut self,
+        note: NoteText,
+        edited: Result<String, EditorError>,
+        i18n: &I18n,
+    ) {
+        let Some(collection) = &mut self.collection else {
+            return;
+        };
+        let saved = match edited {
+            Ok(text) => note.save(collection, &text).map_err(|error| {
+                tracing::warn!(?error, "Failed to save the edited note");
+                error_text::note_edit(&error, i18n)
+            }),
+            Err(error) => {
+                tracing::warn!(?error, "Editing the note failed");
+                Err(error_text::editor(&error, i18n))
+            },
+        };
+
+        match saved {
+            Ok(true) => self.rerender(i18n),
+            Ok(false) => {},
+            Err(text) => self.notice = Some(text),
+        }
+    }
+
+    /// Shows the current card again after its note changed, without replaying its sounds.
+    fn rerender(&mut self, i18n: &I18n) {
+        let (Some(review), Some(collection)) = (&mut self.review, &mut self.collection) else {
+            return;
+        };
+        let on_answer = matches!(review.stage(), Stage::Answer { .. });
+
+        match next_card(collection, review, i18n) {
+            Ok(()) if on_answer => self.reveal(false, i18n),
+            Ok(()) => {},
             Err(error) => self.fail_review(&error, i18n),
         }
     }
@@ -754,7 +869,23 @@ impl State {
         let mut actions = vec![Action::ToggleHelp];
 
         if self.review.is_some() {
-            actions.extend([Action::ReplayAudio, Action::Undo, Action::CloseReview]);
+            actions.extend([Action::ReplayAudio, Action::EditNote]);
+            actions.extend(
+                [
+                    CardAction::ToggleMark,
+                    CardAction::BuryCard,
+                    CardAction::BuryNote,
+                    CardAction::SuspendCard,
+                    CardAction::SuspendNote,
+                ]
+                .map(Action::Card),
+            );
+            actions.extend(Flag::ALL.map(|flag| Action::Card(CardAction::ToggleFlag(flag))));
+            actions.extend([
+                Action::Card(CardAction::DeleteNote),
+                Action::Undo,
+                Action::CloseReview,
+            ]);
         } else if self.session.is_some() {
             actions.extend([Action::Sync, Action::LogOut]);
         } else {
@@ -834,6 +965,8 @@ impl State {
             Action::Answer(rating) => self.answer(rating, i18n),
             Action::Undo => self.undo(i18n),
             Action::ReplayAudio => self.play_side(true),
+            Action::Card(action) => self.card_action(action, i18n),
+            Action::EditNote => self.request_edit(i18n),
             Action::CloseReview => {
                 self.audio.stop();
                 self.review = None;
@@ -885,4 +1018,18 @@ fn tracks(card: &StudyCard, sounds: Vec<SoundRef>) -> Vec<Track> {
             Sound::Tts(_) => None,
         })
         .collect()
+}
+
+/// Anki's tooltips for the actions that take the card away; marks show on the card.
+fn outcome_notice(outcome: Outcome, i18n: &I18n) -> Option<String> {
+    let tr = i18n.anki();
+    let text = match outcome {
+        Outcome::Buried { count } => tr.studying_cards_buried(count),
+        Outcome::CardSuspended => tr.studying_card_suspended(),
+        Outcome::NoteSuspended => tr.studying_note_suspended(),
+        Outcome::Deleted { count } => tr.browsing_cards_deleted(count),
+        Outcome::Marked(_) | Outcome::Flagged(_) => return None,
+    };
+
+    Some(text.into_owned())
 }

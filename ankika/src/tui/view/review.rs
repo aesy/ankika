@@ -1,8 +1,9 @@
+use ankika_core::card_actions::Flag;
 use ankika_core::review::Rating;
 use ankika_core::review::StudyCard;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Margin, Rect, Size};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
@@ -40,7 +41,7 @@ pub fn render(
     let block = Block::bordered()
         .border_type(BorderType::Rounded)
         .border_style(Style::new().fg(theme.border))
-        .title(format!(" {} ", review.deck_name()));
+        .title(title(review, theme));
     let inner = block.inner(area).inner(Margin::new(2, 1));
 
     frame.render_widget(block, area);
@@ -138,6 +139,35 @@ pub fn render(
             frame.render_widget(Paragraph::new(lines).centered(), text_area);
             render_centered(frame, button_area, &[(back, None)], state, theme, hits);
         },
+    }
+}
+
+/// The deck name, with Anki's mark star and flag for the card on screen.
+fn title(review: &Review, theme: Theme) -> Line<'static> {
+    let mut spans = vec![Span::raw(format!(" {} ", review.deck_name()))];
+    let marks = review.card().map(|card| card.marks).unwrap_or_default();
+
+    if marks.marked {
+        spans.push(Span::styled("★ ", Style::new().fg(theme.accent)));
+    }
+
+    if let Some(flag) = marks.flag {
+        spans.push(Span::styled("⚑ ", Style::new().fg(flag_color(flag))));
+    }
+
+    Line::from(spans)
+}
+
+/// Close to the colors of Anki's flags.
+const fn flag_color(flag: Flag) -> Color {
+    match flag {
+        Flag::Red => Color::Rgb(0xff, 0x6b, 0x6b),
+        Flag::Orange => Color::Rgb(0xff, 0xa9, 0x4d),
+        Flag::Green => Color::Rgb(0x51, 0xcf, 0x66),
+        Flag::Blue => Color::Rgb(0x4d, 0xab, 0xf7),
+        Flag::Pink => Color::Rgb(0xf7, 0x83, 0xac),
+        Flag::Turquoise => Color::Rgb(0x3b, 0xc9, 0xdb),
+        Flag::Purple => Color::Rgb(0x97, 0x75, 0xfa),
     }
 }
 

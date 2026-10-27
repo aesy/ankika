@@ -3,6 +3,7 @@ mod audio;
 mod card_text;
 mod choices;
 mod deck_list;
+mod editor;
 mod error_text;
 mod full_sync_prompt;
 mod hit_map;
@@ -136,6 +137,14 @@ async fn event_loop(
                 state.handle_event(&event.map_err(TuiError::ReadEvent)?, i18n);
             },
             Some(result) = results.recv() => state.handle_task_result(result, i18n),
+        }
+
+        // Edits start from an input event, so the event reader has just delivered it and
+        // stays idle until polled again: it can't take the editor's keystrokes. Dropping
+        // it instead would leave a wake-up behind that breaks the terminal queries after.
+        if let Some(note) = state.take_edit() {
+            let edited = editor::edit(terminal, note.note_id(), &note.text());
+            state.finish_edit(note, edited, i18n);
         }
     }
 

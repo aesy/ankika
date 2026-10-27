@@ -1,3 +1,4 @@
+use ankika_core::card_actions::{CardAction, Flag};
 use ankika_core::review::Rating;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -86,6 +87,47 @@ const ESCAPE: Binding = Binding::new(
 );
 
 const UNDO: Binding = Binding::ctrl('z', "Ctrl+Z", Action::Undo);
+
+/// Anki's card shortcuts. `Ctrl` with a digit needs a terminal that reports it, see
+/// `terminal::init`; the palette has every action too.
+const CARD_ACTIONS: &[Binding] = &[
+    Binding::key('e', Action::EditNote),
+    Binding::key('*', Action::Card(CardAction::ToggleMark)),
+    Binding::key('-', Action::Card(CardAction::BuryCard)),
+    Binding::key('=', Action::Card(CardAction::BuryNote)),
+    Binding::key('@', Action::Card(CardAction::SuspendCard)),
+    Binding::key('!', Action::Card(CardAction::SuspendNote)),
+    flag('1', Flag::Red),
+    flag('2', Flag::Orange),
+    flag('3', Flag::Green),
+    flag('4', Flag::Blue),
+    flag('5', Flag::Pink),
+    flag('6', Flag::Turquoise),
+    flag('7', Flag::Purple),
+    Binding::new(
+        KeyCode::Delete,
+        KeyModifiers::CONTROL,
+        "Ctrl+Delete",
+        Action::Card(CardAction::DeleteNote),
+    ),
+];
+
+/// The card actions that don't take a plain character, for while an answer is typed.
+const CARD_ACTIONS_WHILE_TYPING: &[Binding] = CARD_ACTIONS.split_at(6).1;
+
+const fn flag(digit: char, flag: Flag) -> Binding {
+    let label = match flag {
+        Flag::Red => "Ctrl+1",
+        Flag::Orange => "Ctrl+2",
+        Flag::Green => "Ctrl+3",
+        Flag::Blue => "Ctrl+4",
+        Flag::Pink => "Ctrl+5",
+        Flag::Turquoise => "Ctrl+6",
+        Flag::Purple => "Ctrl+7",
+    };
+
+    Binding::ctrl(digit, label, Action::Card(CardAction::ToggleFlag(flag)))
+}
 const CLOSE_REVIEW: Binding = Binding::named(KeyCode::Esc, "Esc", Action::CloseReview);
 
 const MAIN: &[Binding] = &[
@@ -151,7 +193,18 @@ const HELP: &[Binding] = &[ESCAPE, Binding::key('?', Action::ToggleHelp), QUIT];
 
 const OVERLAY: &[Binding] = &[ESCAPE, QUIT];
 
-pub const fn bindings(context: Context) -> &'static [Binding] {
+/// The context's own bindings, then any shared ones.
+const fn tables(context: Context) -> [&'static [Binding]; 2] {
+    let shared: &[Binding] = match context {
+        Context::ReviewQuestion | Context::ReviewAnswer => CARD_ACTIONS,
+        Context::ReviewTyping => CARD_ACTIONS_WHILE_TYPING,
+        _ => &[],
+    };
+
+    [bindings(context), shared]
+}
+
+const fn bindings(context: Context) -> &'static [Binding] {
     match context {
         Context::Main => MAIN,
         Context::Help => HELP,
@@ -164,8 +217,9 @@ pub const fn bindings(context: Context) -> &'static [Binding] {
 }
 
 pub fn action_for(context: Context, key: &KeyEvent) -> Option<Action> {
-    bindings(context)
-        .iter()
+    tables(context)
+        .into_iter()
+        .flatten()
         .find(|binding| binding.matches(key))
         .map(|binding| binding.action)
 }
@@ -174,7 +228,7 @@ pub fn action_for(context: Context, key: &KeyEvent) -> Option<Action> {
 pub fn grouped(context: Context) -> Vec<(Action, Vec<String>)> {
     let mut groups: Vec<(Action, Vec<String>)> = Vec::new();
 
-    for binding in bindings(context) {
+    for binding in tables(context).into_iter().flatten() {
         match groups
             .iter_mut()
             .find(|(action, _)| *action == binding.action)

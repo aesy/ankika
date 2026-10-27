@@ -24,11 +24,14 @@ pub fn render(
         .notice()
         .map(|notice| Line::styled(format!("{notice} "), Style::new().fg(theme.error)));
     // The notice keeps its place on the right; hints stop before it
-    let hints_right = notice.as_ref().map_or(area.right(), |notice| {
-        let width = u16::try_from(notice.width()).unwrap_or(u16::MAX);
+    let hints_right = notice.as_ref().map_or_else(
+        || area.right(),
+        |notice| {
+            let width = u16::try_from(notice.width()).unwrap_or(u16::MAX);
 
-        area.right().saturating_sub(width).saturating_sub(GAP)
-    });
+            area.right().saturating_sub(width).saturating_sub(GAP)
+        },
+    );
     let mut x = area.x.saturating_add(GAP);
 
     for (action, labels) in keymap::grouped(state.context()) {

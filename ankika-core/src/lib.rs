@@ -1,10 +1,12 @@
 pub mod account;
+pub mod card_actions;
 pub mod collection;
 pub mod decks;
 pub mod host_key;
 pub mod lock;
 pub mod login;
 pub mod media_sync;
+pub mod note_edit;
 pub mod paths;
 mod remote;
 pub mod review;

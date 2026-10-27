@@ -1,3 +1,4 @@
+use ankika_core::card_actions::{CardAction, Flag};
 use ankika_core::review::Rating;
 
 use crate::i18n::I18n;
@@ -15,6 +16,8 @@ pub enum Action {
     Answer(Rating),
     Undo,
     ReplayAudio,
+    Card(CardAction),
+    EditNote,
     CloseReview,
     Quit,
 }
@@ -36,8 +39,31 @@ impl Action {
             Self::Answer(Rating::Easy) => i18n.anki().studying_easy().into_owned(),
             Self::Undo => i18n.anki().undo_undo().into_owned(),
             Self::ReplayAudio => i18n.anki().actions_replay_audio().into_owned(),
+            Self::Card(action) => card_action_label(action, i18n),
+            Self::EditNote => i18n.anki().studying_edit().into_owned(),
             Self::CloseReview => i18n.anki().actions_decks().into_owned(),
             Self::Quit => i18n.text("action-quit"),
         }
     }
+}
+
+fn card_action_label(action: CardAction, i18n: &I18n) -> String {
+    let tr = i18n.anki();
+
+    match action {
+        CardAction::BuryCard => tr.studying_bury_card(),
+        CardAction::BuryNote => tr.studying_bury_note(),
+        CardAction::SuspendCard => tr.studying_suspend(),
+        CardAction::SuspendNote => tr.studying_suspend_note(),
+        CardAction::ToggleMark => tr.studying_mark_note(),
+        CardAction::ToggleFlag(Flag::Red) => tr.actions_flag_red(),
+        CardAction::ToggleFlag(Flag::Orange) => tr.actions_flag_orange(),
+        CardAction::ToggleFlag(Flag::Green) => tr.actions_flag_green(),
+        CardAction::ToggleFlag(Flag::Blue) => tr.actions_flag_blue(),
+        CardAction::ToggleFlag(Flag::Pink) => tr.actions_flag_pink(),
+        CardAction::ToggleFlag(Flag::Turquoise) => tr.actions_flag_turquoise(),
+        CardAction::ToggleFlag(Flag::Purple) => tr.actions_flag_purple(),
+        CardAction::DeleteNote => tr.studying_delete_note(),
+    }
+    .into_owned()
 }
