@@ -3,6 +3,8 @@ use html2text::render::{RichAnnotation, RichDecorator, TextDecorator};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use ankika_core::review::{Side, Sound, SoundRef, Sounds};
+
 use crate::tui::theme::Theme;
 
 /// Stands in for the card's own CSS, which is ignored. Colors match Anki's reviewer.
@@ -24,20 +26,45 @@ const MIXED_CASE_CLASSES: [(&str, &str); 3] = [
 /// A piece of a rendered card, top to bottom.
 #[derive(Debug, PartialEq, Eq)]
 pub enum CardBlock {
-    Line(Line<'static>),
+    Line(CardLine),
     /// An image's `src`, drawn below the text it appeared in.
     Image(String),
 }
 
-/// Renders card HTML as styled lines wrapped to `width`, with images split out.
-pub fn render(html: &str, width: u16, theme: Theme) -> Vec<CardBlock> {
+#[derive(Debug, PartialEq, Eq)]
+pub struct CardLine {
+    pub line: Line<'static>,
+    pub sounds: Vec<SoundSpan>,
+}
+
+/// Where a sound's placeholder sits in its line, for clicking it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct SoundSpan {
+    pub sound: SoundRef,
+    /// Columns from the start of the line.
+    pub start: u16,
+    pub width: u16,
+}
+
+/// Link target for sound placeholders; never shown, since links have no footnotes.
+const SOUND_LINK: &str = "ankika-sound:";
+
+/// Renders card HTML as styled lines wrapped to `width`, with images split out and sound
+/// references shown as placeholders, the one in `playing` highlighted.
+pub fn render(
+    html: &str,
+    width: u16,
+    theme: Theme,
+    sounds: &Sounds,
+    playing: Option<SoundRef>,
+) -> Vec<CardBlock> {
     let config = html2text::config::with_decorator(CardDecorator(RichDecorator::new()))
         .link_footnotes(false)
         // Inline `style` attributes; the card's own stylesheet is never passed in
         .use_doc_css()
         .add_css(CARD_CSS);
     let html = MIXED_CASE_CLASSES.iter().fold(
-        with_rule_markers(&with_image_alt(html)),
+        with_rule_markers(&with_image_alt(&with_sound_links(html, sounds))),
         |html, (from, to)| html.replace(from, to),
     );
     let lines = config
@@ -49,31 +76,59 @@ pub fn render(html: &str, width: u16, theme: Theme) -> Vec<CardBlock> {
 
             for line in &lines {
                 let mut images = Vec::new();
-                let spans: Line<'static> = line
-                    .tagged_strings()
-                    .filter_map(|string| {
-                        let image = string.tag.iter().find_map(|annotation| match annotation {
-                            RichAnnotation::Image(src) => Some(src.clone()),
-                            _ => None,
-                        });
+                let mut sound_spans = Vec::new();
+                let mut column: u16 = 0;
+                let mut spans = Vec::new();
 
-                        if let Some(src) = image {
-                            images.push(src);
-                            return None;
+                for string in line.tagged_strings() {
+                    let mut image = None;
+                    let mut sound = None;
+
+                    for annotation in &string.tag {
+                        match annotation {
+                            RichAnnotation::Image(src) => image = Some(src.clone()),
+                            RichAnnotation::Link(url) => sound = parse_sound_link(url),
+                            _ => {},
                         }
+                    }
 
-                        Some(Span::styled(string.s.clone(), style(&string.tag, theme)))
-                    })
-                    .collect();
-                let text = spans.to_string();
+                    if let Some(src) = image {
+                        images.push(src);
+                        continue;
+                    }
+
+                    let span_width =
+                        u16::try_from(Span::raw(string.s.as_str()).width()).unwrap_or(u16::MAX);
+                    let style = sound.map_or_else(
+                        || style(&string.tag, theme),
+                        |sound| {
+                            sound_spans.push(SoundSpan {
+                                sound,
+                                start: column,
+                                width: span_width,
+                            });
+
+                            sound_style(Some(sound) == playing, theme)
+                        },
+                    );
+
+                    spans.push(Span::styled(string.s.clone(), style));
+                    column = column.saturating_add(span_width);
+                }
+
+                let line = Line::from(spans);
+                let text = line.to_string();
 
                 if text.trim() == RULE_MARKER {
-                    blocks.push(CardBlock::Line(Line::styled(
-                        "─".repeat(usize::from(width)),
-                        theme.border,
-                    )));
+                    blocks.push(CardBlock::Line(CardLine {
+                        line: Line::styled("─".repeat(usize::from(width)), theme.border),
+                        sounds: Vec::new(),
+                    }));
                 } else if images.is_empty() || !text.trim().is_empty() {
-                    blocks.push(CardBlock::Line(spans));
+                    blocks.push(CardBlock::Line(CardLine {
+                        line,
+                        sounds: sound_spans,
+                    }));
                 }
 
                 blocks.extend(images.into_iter().map(CardBlock::Image));
@@ -84,10 +139,74 @@ pub fn render(html: &str, width: u16, theme: Theme) -> Vec<CardBlock> {
         Err(error) => {
             tracing::warn!(?error, "Failed to render card HTML");
             html.lines()
-                .map(|line| CardBlock::Line(Line::raw(line.to_owned())))
+                .map(|line| {
+                    CardBlock::Line(CardLine {
+                        line: Line::raw(line.to_owned()),
+                        sounds: Vec::new(),
+                    })
+                })
                 .collect()
         },
     }
+}
+
+/// Turns Anki's sound references into placeholders; files become links so they can be
+/// highlighted and clicked.
+fn with_sound_links(html: &str, sounds: &Sounds) -> String {
+    let mut html = html.to_owned();
+
+    for side in [Side::Question, Side::Answer] {
+        for (index, sound) in sounds.side(side).iter().enumerate() {
+            let sound_ref = SoundRef { side, index };
+            let placeholder = match sound {
+                Sound::File(file) => format!(
+                    r#"<a href="{SOUND_LINK}{}">[sound: {}]</a>"#,
+                    link_target(sound_ref),
+                    escape(file)
+                ),
+                Sound::Tts(text) => format!("[tts: {}]", escape(text)),
+            };
+
+            html = html.replace(&sound_ref.tag(), &placeholder);
+        }
+    }
+
+    html
+}
+
+fn link_target(sound: SoundRef) -> String {
+    let side = match sound.side {
+        Side::Question => 'q',
+        Side::Answer => 'a',
+    };
+
+    format!("{side}{}", sound.index)
+}
+
+fn parse_sound_link(url: &str) -> Option<SoundRef> {
+    let target = url.strip_prefix(SOUND_LINK)?;
+    let side = match target.chars().next()? {
+        'q' => Side::Question,
+        'a' => Side::Answer,
+        _ => return None,
+    };
+    let index = target.get(1..)?.parse().ok()?;
+
+    Some(SoundRef { side, index })
+}
+
+const fn sound_style(playing: bool, theme: Theme) -> Style {
+    if playing {
+        Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
+    } else {
+        Style::new().fg(theme.muted)
+    }
+}
+
+fn escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Private-use character standing in for `<hr>`, which html2text ignores but Anki uses to
@@ -262,11 +381,24 @@ impl TextDecorator for CardDecorator {
 mod tests {
     use super::*;
 
+    fn no_sounds() -> Sounds {
+        Sounds {
+            question: Vec::new(),
+            answer: Vec::new(),
+            autoplay: true,
+            replay_question: true,
+        }
+    }
+
+    fn render(html: &str, width: u16, theme: Theme) -> Vec<CardBlock> {
+        super::render(html, width, theme, &no_sounds(), None)
+    }
+
     fn lines(blocks: Vec<CardBlock>) -> Vec<Line<'static>> {
         blocks
             .into_iter()
             .filter_map(|block| match block {
-                CardBlock::Line(line) => Some(line),
+                CardBlock::Line(line) => Some(line.line),
                 CardBlock::Image(_) => None,
             })
             .collect()
@@ -332,6 +464,38 @@ mod tests {
     }
 
     #[test]
+    fn marks_sound_placeholders() {
+        let sounds = Sounds {
+            question: vec![Sound::File("a.mp3".to_owned())],
+            ..no_sounds()
+        };
+        let playing = SoundRef {
+            side: Side::Question,
+            index: 0,
+        };
+        let blocks = super::render(
+            "Hi [anki:play:q:0]",
+            40,
+            Theme::detect(),
+            &sounds,
+            Some(playing),
+        );
+        let CardBlock::Line(line) = &blocks[0] else {
+            panic!("expected a line");
+        };
+
+        assert_eq!(line.line.to_string(), "Hi [sound: a.mp3]");
+        assert_eq!(
+            line.sounds,
+            vec![SoundSpan {
+                sound: playing,
+                start: 3,
+                width: 14,
+            }]
+        );
+    }
+
+    #[test]
     fn splits_out_images() {
         let blocks = render(
             r#"Cat: <img src="cat.jpg"><br><img src="dog.png">"#,
@@ -342,7 +506,10 @@ mod tests {
         assert_eq!(
             blocks,
             vec![
-                CardBlock::Line(Line::from("Cat: ")),
+                CardBlock::Line(CardLine {
+                    line: Line::from("Cat: "),
+                    sounds: Vec::new(),
+                }),
                 CardBlock::Image("cat.jpg".to_owned()),
                 CardBlock::Image("dog.png".to_owned()),
             ]

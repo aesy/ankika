@@ -101,6 +101,7 @@ const MAIN: &[Binding] = &[
 const REVIEW_QUESTION: &[Binding] = &[
     Binding::named(KeyCode::Char(' '), "Space", Action::ShowAnswer),
     Binding::named(KeyCode::Enter, "Enter", Action::ShowAnswer),
+    Binding::key('r', Action::ReplayAudio),
     UNDO,
     CLOSE_REVIEW,
     Binding::key('q', Action::CloseReview),
@@ -125,6 +126,7 @@ const REVIEW_ANSWER: &[Binding] = &[
     Binding::named(KeyCode::Char(' '), "Space", Action::Answer(Rating::Good)),
     Binding::named(KeyCode::Enter, "Enter", Action::Answer(Rating::Good)),
     Binding::key('4', Action::Answer(Rating::Easy)),
+    Binding::key('r', Action::ReplayAudio),
     UNDO,
     CLOSE_REVIEW,
     Binding::key('q', Action::CloseReview),

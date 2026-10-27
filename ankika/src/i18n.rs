@@ -1,8 +1,8 @@
 use std::fmt::Display;
 
 use anki::prelude::I18n as AnkiI18n;
-use fluent_bundle::FluentResource;
 use fluent_bundle::concurrent::FluentBundle;
+use fluent_bundle::{FluentArgs, FluentResource, FluentValue};
 use unic_langid::langid;
 
 const MESSAGES: &str = include_str!("../locales/en-US/ankika.ftl");
@@ -51,6 +51,11 @@ impl I18n {
 
     /// Falls back to the id itself, so a missing message never breaks the UI.
     pub fn text(&self, id: &str) -> String {
+        self.text_with(id, &[])
+    }
+
+    /// Like `text`, filling in the message's `{ $name }` variables.
+    pub fn text_with(&self, id: &str, args: &[(&str, &str)]) -> String {
         let Some(pattern) = self
             .bundle
             .get_message(id)
@@ -61,7 +66,14 @@ impl I18n {
         };
 
         let mut errors = Vec::new();
-        let text = self.bundle.format_pattern(pattern, None, &mut errors);
+        let args = (!args.is_empty()).then(|| {
+            args.iter()
+                .map(|&(name, value)| (name, FluentValue::from(value)))
+                .collect::<FluentArgs<'_>>()
+        });
+        let text = self
+            .bundle
+            .format_pattern(pattern, args.as_ref(), &mut errors);
 
         if !errors.is_empty() {
             tracing::warn!(id, errors = join(&errors), "Failed to format message");
@@ -93,6 +105,16 @@ mod tests {
         let i18n = I18n::new().unwrap();
 
         assert_eq!(i18n.text("action-quit"), "Quit");
+    }
+
+    #[test]
+    fn text_with_fills_variables() {
+        let i18n = I18n::new().unwrap();
+
+        assert_eq!(
+            i18n.text_with("audio-cannot-play", &[("file", "a.opus")]),
+            "Could not play a.opus."
+        );
     }
 
     #[test]

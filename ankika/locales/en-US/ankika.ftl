@@ -21,3 +21,6 @@ sync-status-media = Syncing media...
 quit-media-syncing = Media is still syncing. Wait for it to finish, or abort it and continue next time.
 quit-wait = Wait
 error-sync-server-url = The sync server URL is not valid.
+
+audio-cannot-play = Could not play { $file }.
+audio-no-output = No audio output device found.

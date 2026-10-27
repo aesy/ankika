@@ -9,6 +9,8 @@ use futures_util::future::{AbortHandle, Abortable};
 use tokio::runtime::Handle;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::watch;
+
+use crate::tui::audio::AudioEvent;
 use tokio::task::{self, JoinSet};
 
 #[derive(Debug, thiserror::Error)]
@@ -31,6 +33,7 @@ pub enum TaskResult {
     FullSynced(FullSyncOutput),
     /// Not sent when the media sync was aborted.
     MediaSynced(Result<(), SyncError>),
+    Audio(AudioEvent),
 }
 
 /// Starts background work; results come back to the event loop through the channel.

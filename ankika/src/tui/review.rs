@@ -98,6 +98,14 @@ impl Review {
         self.scroll = 0;
     }
 
+    /// The card on screen, if any.
+    pub const fn card(&self) -> Option<&StudyCard> {
+        match &self.stage {
+            Stage::Question { card, .. } | Stage::Answer { card, .. } => Some(card),
+            Stage::Waiting | Stage::Finished { .. } => None,
+        }
+    }
+
     /// The question and what was typed, for revealing the answer.
     pub fn question(&self) -> Option<(&StudyCard, &str)> {
         match &self.stage {

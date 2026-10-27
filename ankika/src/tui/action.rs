@@ -14,6 +14,7 @@ pub enum Action {
     ShowAnswer,
     Answer(Rating),
     Undo,
+    ReplayAudio,
     CloseReview,
     Quit,
 }
@@ -34,6 +35,7 @@ impl Action {
             Self::Answer(Rating::Good) => i18n.anki().studying_good().into_owned(),
             Self::Answer(Rating::Easy) => i18n.anki().studying_easy().into_owned(),
             Self::Undo => i18n.anki().undo_undo().into_owned(),
+            Self::ReplayAudio => i18n.anki().actions_replay_audio().into_owned(),
             Self::CloseReview => i18n.anki().actions_decks().into_owned(),
             Self::Quit => i18n.text("action-quit"),
         }

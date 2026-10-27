@@ -20,6 +20,15 @@ pub fn render(
     theme: Theme,
     hits: &mut HitMap,
 ) {
+    let notice = state
+        .notice()
+        .map(|notice| Line::styled(format!("{notice} "), Style::new().fg(theme.error)));
+    // The notice keeps its place on the right; hints stop before it
+    let hints_right = notice.as_ref().map_or(area.right(), |notice| {
+        let width = u16::try_from(notice.width()).unwrap_or(u16::MAX);
+
+        area.right().saturating_sub(width).saturating_sub(GAP)
+    });
     let mut x = area.x.saturating_add(GAP);
 
     for (action, labels) in keymap::grouped(state.context()) {
@@ -39,7 +48,7 @@ pub fn render(
         let width = u16::try_from(line.width()).unwrap_or(u16::MAX);
 
         // Whole hints only; the rest stay listed in the help overlay
-        if x.saturating_add(width) > area.right() {
+        if x.saturating_add(width) > hints_right {
             break;
         }
 
@@ -58,10 +67,7 @@ pub fn render(
         x = x.saturating_add(width).saturating_add(GAP);
     }
 
-    if let Some(notice) = state.notice() {
-        frame.render_widget(
-            Line::styled(format!("{notice} "), Style::new().fg(theme.error)).right_aligned(),
-            area,
-        );
+    if let Some(notice) = notice {
+        frame.render_widget(notice.right_aligned(), area);
     }
 }

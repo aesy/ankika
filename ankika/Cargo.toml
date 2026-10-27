@@ -24,6 +24,7 @@ image = { workspace = true }
 nucleo-matcher = { workspace = true }
 ratatui = { workspace = true }
 ratatui-image = { workspace = true }
+rodio = { workspace = true }
 rpassword = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }

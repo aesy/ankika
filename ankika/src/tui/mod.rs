@@ -1,4 +1,5 @@
 mod action;
+mod audio;
 mod card_text;
 mod choices;
 mod deck_list;
@@ -30,6 +31,7 @@ use tokio::sync::mpsc::{self, UnboundedReceiver};
 
 use crate::cli::ImageMode;
 use crate::i18n::I18n;
+use crate::tui::audio::Audio;
 use crate::tui::hit_map::HitMap;
 use crate::tui::images::Images;
 use crate::tui::state::State;
@@ -66,8 +68,9 @@ pub async fn run(
             (None, Some(i18n.text("error-load-login")))
         },
     };
+    let audio = Audio::start(paths.media_dir(), sender.clone());
     let tasks = Tasks::new(sender, sessions, sync_server);
-    let mut state = State::new(session, collection, tasks);
+    let mut state = State::new(session, collection, tasks, audio);
 
     if let Some(notice) = notice {
         state.set_notice(notice);

@@ -55,7 +55,15 @@ pub fn render(
             frame.render_widget(Paragraph::new(text).centered(), content_area);
         },
         Stage::Question { card, typed } => {
-            render_card(frame, content_area, card, &card.question, review, context);
+            render_card(
+                frame,
+                content_area,
+                card,
+                &card.question,
+                review,
+                context,
+                hits,
+            );
 
             let [input_area, _, button_area] = Layout::vertical([
                 Constraint::Length(1),
@@ -78,7 +86,7 @@ pub fn render(
             render_centered(frame, button_area, &[(show, None)], state, theme, hits);
         },
         Stage::Answer { card, html } => {
-            render_card(frame, content_area, card, html, review, context);
+            render_card(frame, content_area, card, html, review, context, hits);
 
             let buttons: Vec<(Button, Option<&str>)> = Rating::ALL
                 .iter()
@@ -140,24 +148,31 @@ fn render_card(
     html: &str,
     review: &Review,
     context: &Context<'_>,
+    hits: &mut HitMap,
 ) {
-    let Context { images, theme, .. } = *context;
+    let Context {
+        state,
+        images,
+        theme,
+        ..
+    } = *context;
 
     images.show_card(card.id);
 
     // Keeps room for the text around an image
     let image_space = Size::new(area.width, (area.height / 2).max(1));
-    let items: Vec<(CardBlock, Option<Size>)> = card_text::render(html, area.width, theme)
-        .into_iter()
-        .map(|block| {
-            let size = match &block {
-                CardBlock::Line(_) => None,
-                CardBlock::Image(src) => images.size(src, image_space),
-            };
+    let items: Vec<(CardBlock, Option<Size>)> =
+        card_text::render(html, area.width, theme, &card.sounds, state.playing())
+            .into_iter()
+            .map(|block| {
+                let size = match &block {
+                    CardBlock::Line(_) => None,
+                    CardBlock::Image(src) => images.size(src, image_space),
+                };
 
-            (block, size)
-        })
-        .collect();
+                (block, size)
+            })
+            .collect();
     let height: u16 = items
         .iter()
         .map(|(_, size)| size.map_or(1, |size| size.height))
@@ -189,7 +204,20 @@ fn render_card(
 
                     frame.render_widget(placeholder.centered(), row);
                 },
-                (CardBlock::Line(line), _) => frame.render_widget(line.centered(), row),
+                (CardBlock::Line(line), _) => {
+                    let width = u16::try_from(line.line.width()).unwrap_or(u16::MAX);
+                    // Where ratatui puts a centered line
+                    let left = row.x + row.width.saturating_sub(width) / 2;
+
+                    for span in &line.sounds {
+                        let area =
+                            Rect::new(left + span.start, row.y, span.width, 1).intersection(row);
+
+                        hits.register(area, Hit::Sound(span.sound));
+                    }
+
+                    frame.render_widget(line.line.centered(), row);
+                },
             }
         }
 

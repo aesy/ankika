@@ -1,4 +1,5 @@
 use anki::decks::DeckId;
+use ankika_core::review::SoundRef;
 use ratatui::layout::{Position, Rect};
 
 use crate::tui::action::Action;
@@ -14,6 +15,7 @@ pub enum Hit {
     FullSyncChoice(Choice),
     QuitChoice(QuitChoice),
     Deck(DeckId),
+    Sound(SoundRef),
     /// The expand or collapse arrow in front of a deck.
     DeckToggle(DeckId),
     /// Inside an overlay but not on anything clickable, so the overlay stays open.

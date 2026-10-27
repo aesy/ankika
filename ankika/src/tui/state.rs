@@ -2,7 +2,7 @@ use anki::collection::Collection;
 use anki::decks::DeckId;
 use ankika_core::collection::CollectionError;
 use ankika_core::decks;
-use ankika_core::review::{self, Rating, ReviewError};
+use ankika_core::review::{self, Rating, ReviewError, Side, Sound, SoundRef, StudyCard};
 use ankika_core::session::Session;
 use ankika_core::sync::{
     FullSyncDirection, FullSyncOutput, FullSyncRequired, NormalSyncOutput, SyncError,
@@ -15,6 +15,7 @@ use ratatui::layout::Position;
 
 use crate::i18n::I18n;
 use crate::tui::action::Action;
+use crate::tui::audio::{Audio, AudioEvent, Track};
 use crate::tui::choices::Choices;
 use crate::tui::deck_list::DeckList;
 use crate::tui::error_text;
@@ -49,6 +50,9 @@ pub struct State {
     /// `None` while a sync task has it.
     collection: Option<Collection>,
     tasks: Tasks,
+    audio: Audio,
+    /// The sound the audio thread reports as playing.
+    playing: Option<SoundRef>,
     decks: DeckList,
     review: Option<Review>,
     /// Collapsed states changed while a sync had the collection.
@@ -67,11 +71,18 @@ pub struct State {
 }
 
 impl State {
-    pub fn new(session: Option<Session>, collection: Collection, tasks: Tasks) -> Self {
+    pub fn new(
+        session: Option<Session>,
+        collection: Collection,
+        tasks: Tasks,
+        audio: Audio,
+    ) -> Self {
         Self {
             session,
             collection: Some(collection),
             tasks,
+            audio,
+            playing: None,
             decks: DeckList::default(),
             review: None,
             pending_collapse: Vec::new(),
@@ -101,6 +112,10 @@ impl State {
 
     pub const fn decks(&self) -> &DeckList {
         &self.decks
+    }
+
+    pub const fn playing(&self) -> Option<SoundRef> {
+        self.playing
     }
 
     pub const fn review(&self) -> Option<&Review> {
@@ -292,6 +307,13 @@ impl State {
                 self.quit_if_done();
             },
             TaskResult::FullSynced(output) => self.finish_full_sync(output, i18n),
+            TaskResult::Audio(AudioEvent::Playing(sound)) => self.playing = sound,
+            TaskResult::Audio(AudioEvent::CannotPlay { file }) => {
+                self.notice = Some(i18n.text_with("audio-cannot-play", &[("file", &file)]));
+            },
+            TaskResult::Audio(AudioEvent::NoOutputDevice) => {
+                self.notice = Some(i18n.text("audio-no-output"));
+            },
             TaskResult::MediaSynced(result) => {
                 self.media_sync = None;
 
@@ -535,6 +557,7 @@ impl State {
             },
             Some(Hit::FullSyncChoice(choice)) => self.choose_full_sync(choice),
             Some(Hit::QuitChoice(choice)) => self.choose_quit(choice, i18n),
+            Some(Hit::Sound(sound)) => self.play(vec![sound]),
             Some(Hit::Deck(id)) => {
                 self.decks.select(id);
                 self.start_review(i18n);
@@ -594,8 +617,9 @@ impl State {
             return;
         };
 
-        if let Err(error) = next_card(collection, review, i18n) {
-            self.fail_review(&error, i18n);
+        match next_card(collection, review, i18n) {
+            Ok(()) => self.play_side(false),
+            Err(error) => self.fail_review(&error, i18n),
         }
     }
 
@@ -608,7 +632,10 @@ impl State {
         };
 
         match card.answer(collection, typed) {
-            Ok(html) => review.show_answer(html),
+            Ok(html) => {
+                review.show_answer(html);
+                self.play_side(false);
+            },
             Err(error) => self.fail_review(&error, i18n),
         }
     }
@@ -623,8 +650,9 @@ impl State {
         let result = review::answer(collection, card, rating, taken)
             .and_then(|()| next_card(collection, review, i18n));
 
-        if let Err(error) = result {
-            self.fail_review(&error, i18n);
+        match result {
+            Ok(()) => self.play_side(false),
+            Err(error) => self.fail_review(&error, i18n),
         }
     }
 
@@ -634,20 +662,55 @@ impl State {
         };
         let result = review::undo(collection).and_then(|undone| {
             if undone {
-                next_card(collection, review, i18n)
+                next_card(collection, review, i18n).map(|()| true)
             } else {
-                Ok(())
+                Ok(false)
             }
         });
 
-        if let Err(error) = result {
-            self.fail_review(&error, i18n);
+        match result {
+            Ok(true) => self.play_side(false),
+            Ok(false) => {},
+            Err(error) => self.fail_review(&error, i18n),
         }
+    }
+
+    /// Plays the side on screen: as Replay Audio, or automatically when the deck allows it.
+    /// Anything else on screen stops the sound.
+    fn play_side(&self, replay: bool) {
+        let side = match self.review.as_ref().map(Review::stage) {
+            Some(Stage::Question { card, .. }) => Some((card, Side::Question)),
+            Some(Stage::Answer { card, .. }) => Some((card, Side::Answer)),
+            _ => None,
+        };
+        let sounds = side.map(|(card, side)| {
+            if replay {
+                card.sounds.replay(side)
+            } else if card.sounds.autoplay {
+                card.sounds.all(side)
+            } else {
+                Vec::new()
+            }
+        });
+
+        match sounds {
+            Some(sounds) if !sounds.is_empty() => self.play(sounds),
+            _ => self.audio.stop(),
+        }
+    }
+
+    fn play(&self, sounds: Vec<SoundRef>) {
+        let Some(card) = self.review.as_ref().and_then(Review::card) else {
+            return;
+        };
+
+        self.audio.play(tracks(card, sounds));
     }
 
     /// Goes back to the deck list, since the card on screen may no longer be valid.
     fn fail_review(&mut self, error: &ReviewError, i18n: &I18n) {
         tracing::warn!(?error, "Review failed");
+        self.audio.stop();
         self.notice = Some(error_text::review(error, i18n));
         self.review = None;
         self.reload_decks(i18n);
@@ -691,7 +754,7 @@ impl State {
         let mut actions = vec![Action::ToggleHelp];
 
         if self.review.is_some() {
-            actions.extend([Action::Undo, Action::CloseReview]);
+            actions.extend([Action::ReplayAudio, Action::Undo, Action::CloseReview]);
         } else if self.session.is_some() {
             actions.extend([Action::Sync, Action::LogOut]);
         } else {
@@ -770,7 +833,9 @@ impl State {
             Action::ShowAnswer => self.show_answer(i18n),
             Action::Answer(rating) => self.answer(rating, i18n),
             Action::Undo => self.undo(i18n),
+            Action::ReplayAudio => self.play_side(true),
             Action::CloseReview => {
+                self.audio.stop();
                 self.review = None;
                 self.reload_decks(i18n);
             },
@@ -806,4 +871,18 @@ fn next_card(
     }
 
     Ok(())
+}
+
+/// Files only; speech isn't supported yet.
+fn tracks(card: &StudyCard, sounds: Vec<SoundRef>) -> Vec<Track> {
+    sounds
+        .into_iter()
+        .filter_map(|sound| match card.sounds.get(sound)? {
+            Sound::File(file) => Some(Track {
+                sound,
+                file: file.clone(),
+            }),
+            Sound::Tts(_) => None,
+        })
+        .collect()
 }
