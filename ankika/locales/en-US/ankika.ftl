@@ -30,3 +30,8 @@ error-note-header = Not saved: the header "{ $header }" is missing or out of ord
 error-editor-launch = Could not start the editor { $editor }. Set $VISUAL or $EDITOR.
 error-editor-failed = Not saved: the editor { $editor } exited with an error.
 error-editor-file = Could not pass the note to the editor. See the log for details.
+
+action-open-deck = Open
+action-back = Back
+custom-study-invalid-amount = Enter a whole number in the allowed range.
+error-deck-missing = The deck no longer exists.

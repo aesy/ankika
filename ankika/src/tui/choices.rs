@@ -13,6 +13,10 @@ impl<T: Copy + 'static> Choices<T> {
         }
     }
 
+    pub const fn focusing_first(items: &'static [T]) -> Self {
+        Self { items, focused: 0 }
+    }
+
     pub const fn items(&self) -> &'static [T] {
         self.items
     }

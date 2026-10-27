@@ -4,6 +4,7 @@ use ankika_core::card_actions::{self, CardAction, Flag, Outcome};
 use ankika_core::collection::CollectionError;
 use ankika_core::decks;
 use ankika_core::note_edit::NoteText;
+use ankika_core::overview::{self, OverviewError, Unbury};
 use ankika_core::review::{self, Rating, ReviewError, Side, Sound, SoundRef, StudyCard};
 use ankika_core::session::Session;
 use ankika_core::sync::{
@@ -19,6 +20,7 @@ use crate::i18n::I18n;
 use crate::tui::action::Action;
 use crate::tui::audio::{Audio, AudioEvent, Track};
 use crate::tui::choices::Choices;
+use crate::tui::custom_study_form::{self, CustomStudyForm};
 use crate::tui::deck_list::DeckList;
 use crate::tui::editor::EditorError;
 use crate::tui::error_text;
@@ -26,10 +28,12 @@ use crate::tui::full_sync_prompt::{Choice, FullSyncPrompt};
 use crate::tui::hit_map::{Hit, HitMap};
 use crate::tui::keymap::{self, Context};
 use crate::tui::login_form::{Field, LoginForm};
+use crate::tui::overview::DeckScreen;
 use crate::tui::palette::Palette;
 use crate::tui::quit_prompt::{self, QuitChoice};
 use crate::tui::review::{Review, Stage};
 use crate::tui::tasks::{TaskResult, Tasks};
+use crate::tui::unbury_prompt::{self, UnburyChoice};
 
 pub enum Overlay {
     None,
@@ -38,6 +42,8 @@ pub enum Overlay {
     Login(LoginForm),
     FullSync(FullSyncPrompt),
     Quit(Choices<QuitChoice>),
+    Unbury(Choices<UnburyChoice>),
+    CustomStudy(CustomStudyForm),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,6 +63,8 @@ pub struct State {
     /// The sound the audio thread reports as playing.
     playing: Option<SoundRef>,
     decks: DeckList,
+    /// The deck overview; studying happens on top of it.
+    deck_screen: Option<DeckScreen>,
     review: Option<Review>,
     /// A note waiting for the event loop to open it in the editor.
     edit: Option<NoteText>,
@@ -89,6 +97,7 @@ impl State {
             audio,
             playing: None,
             decks: DeckList::default(),
+            deck_screen: None,
             review: None,
             edit: None,
             pending_collapse: Vec::new(),
@@ -124,6 +133,10 @@ impl State {
         self.playing
     }
 
+    pub const fn deck_screen(&self) -> Option<&DeckScreen> {
+        self.deck_screen.as_ref()
+    }
+
     pub const fn review(&self) -> Option<&Review> {
         self.review.as_ref()
     }
@@ -153,7 +166,11 @@ impl State {
     pub fn context(&self) -> Context {
         match self.overlay {
             Overlay::None => match &self.review {
-                None => Context::Main,
+                None => match &self.deck_screen {
+                    Some(screen) if screen.is_filtered() => Context::FilteredOverview,
+                    Some(_) => Context::Overview,
+                    None => Context::Main,
+                },
                 Some(review) if review.is_typing() => Context::ReviewTyping,
                 Some(review) => match review.stage() {
                     Stage::Question { .. } => Context::ReviewQuestion,
@@ -166,6 +183,8 @@ impl State {
             Overlay::Login(_) => Context::Login,
             Overlay::FullSync(_) => Context::FullSync,
             Overlay::Quit(_) => Context::Quit,
+            Overlay::Unbury(_) => Context::Unbury,
+            Overlay::CustomStudy(_) => Context::CustomStudy,
         }
     }
 
@@ -294,7 +313,7 @@ impl State {
             } => {
                 self.collection = Some(collection);
                 self.reload_decks(i18n);
-                self.resume_review(i18n);
+                self.refresh_deck_screen(i18n);
 
                 // Logging out during the sync wins over the returned session
                 if self.session.is_some() {
@@ -361,7 +380,7 @@ impl State {
             Ok(collection) => {
                 self.collection = Some(collection);
                 self.reload_decks(i18n);
-                self.resume_review(i18n);
+                self.refresh_deck_screen(i18n);
             },
             Err(error) => {
                 tracing::error!(?error, "Failed to reopen the collection after a full sync");
@@ -483,7 +502,29 @@ impl State {
                     self.choose_quit(choice, i18n);
                 }
             },
+            Overlay::Unbury(choices) => {
+                if let Some(choice) = navigate(choices, key.code) {
+                    self.choose_unbury(choice, i18n);
+                }
+            },
+            Overlay::CustomStudy(form) => match key.code {
+                KeyCode::Tab => form.focus_next(),
+                KeyCode::BackTab => form.focus_previous(),
+                KeyCode::Up | KeyCode::Left => form.step(false),
+                KeyCode::Down | KeyCode::Right => form.step(true),
+                KeyCode::Backspace => form.pop(),
+                KeyCode::Enter if form.focus() == custom_study_form::Field::Cancel => {
+                    self.overlay = Overlay::None;
+                },
+                KeyCode::Enter => self.submit_custom_study(i18n),
+                _ => {
+                    if let Some(character) = typed {
+                        form.push(character);
+                    }
+                },
+            },
             Overlay::None if self.review.is_some() => self.handle_review_key(key.code, typed),
+            Overlay::None if self.deck_screen.is_some() => {},
             Overlay::None => match key.code {
                 KeyCode::Up => self.decks.select_previous(),
                 KeyCode::Down => self.decks.select_next(),
@@ -524,6 +565,7 @@ impl State {
                 Overlay::Palette(palette) => palette.select_previous(),
                 Overlay::None => match &mut self.review {
                     Some(review) => review.scroll_up(),
+                    None if self.deck_screen.is_some() => {},
                     None => self.decks.select_previous(),
                 },
                 _ => {},
@@ -532,6 +574,7 @@ impl State {
                 Overlay::Palette(palette) => palette.select_next(),
                 Overlay::None => match &mut self.review {
                     Some(review) => review.scroll_down(),
+                    None if self.deck_screen.is_some() => {},
                     None => self.decks.select_next(),
                 },
                 _ => {},
@@ -566,7 +609,31 @@ impl State {
             Some(Hit::Sound(sound)) => self.play(vec![sound]),
             Some(Hit::Deck(id)) => {
                 self.decks.select(id);
-                self.start_review(i18n);
+                self.open_deck(i18n);
+            },
+            Some(Hit::UnburyChoice(choice)) => self.choose_unbury(choice, i18n),
+            Some(Hit::CustomStudyChoice(choice)) => {
+                if let Overlay::CustomStudy(form) = &mut self.overlay {
+                    form.set_focus(custom_study_form::Field::Choice);
+                    form.select(choice);
+                }
+            },
+            Some(Hit::CustomStudyKind(kind)) => {
+                if let Overlay::CustomStudy(form) = &mut self.overlay {
+                    form.set_focus(custom_study_form::Field::Kind);
+                    form.select_kind(kind);
+                }
+            },
+            Some(Hit::CustomStudyField(field)) => {
+                if let Overlay::CustomStudy(form) = &mut self.overlay {
+                    form.set_focus(field);
+                }
+
+                match field {
+                    custom_study_form::Field::Ok => self.submit_custom_study(i18n),
+                    custom_study_form::Field::Cancel => self.overlay = Overlay::None,
+                    _ => {},
+                }
             },
             Some(Hit::DeckToggle(id)) => {
                 let change = self.decks.toggle(id);
@@ -605,12 +672,140 @@ impl State {
     }
 
     fn start_review(&mut self, i18n: &I18n) {
+        let Some(screen) = &self.deck_screen else {
+            return;
+        };
+
+        self.review = Some(Review::new(screen.deck(), screen.name().to_owned()));
+        self.resume_review(i18n);
+    }
+
+    fn open_deck(&mut self, i18n: &I18n) {
         let Some(deck) = self.decks.selected().and_then(|id| self.decks.deck(id)) else {
             return;
         };
 
-        self.review = Some(Review::new(deck.id, deck.name.clone()));
-        self.resume_review(i18n);
+        self.show_deck(deck.id, deck.name.clone(), i18n);
+    }
+
+    fn show_deck(&mut self, deck: DeckId, name: String, i18n: &I18n) {
+        self.deck_screen = Some(DeckScreen::Waiting { deck, name });
+        self.refresh_deck_screen(i18n);
+    }
+
+    /// Reloads what's on screen once the collection is available: the review if one is
+    /// running, otherwise the overview.
+    fn refresh_deck_screen(&mut self, i18n: &I18n) {
+        if self.review.is_some() {
+            self.resume_review(i18n);
+            return;
+        }
+
+        let (Some(screen), Some(collection)) = (&self.deck_screen, &mut self.collection) else {
+            return;
+        };
+
+        match overview::load(collection, screen.deck(), i18n.anki()) {
+            Ok(overview) => self.deck_screen = Some(DeckScreen::Ready(overview)),
+            Err(error) => {
+                tracing::warn!(?error, "Failed to load the deck overview");
+                self.notice = Some(error_text::overview(&error, i18n));
+                self.deck_screen = None;
+                self.reload_decks(i18n);
+            },
+        }
+    }
+
+    fn close_overview(&mut self, i18n: &I18n) {
+        self.deck_screen = None;
+        self.reload_decks(i18n);
+    }
+
+    /// Asks which kind first when there are both, like Anki.
+    fn unbury(&mut self, i18n: &I18n) {
+        let Some(overview) = self.deck_screen.as_ref().and_then(DeckScreen::overview) else {
+            return;
+        };
+
+        match (overview.have_user_buried, overview.have_sched_buried) {
+            (true, true) => self.overlay = Overlay::Unbury(unbury_prompt::new()),
+            (false, false) => {},
+            _ => self.choose_unbury(UnburyChoice::Unbury(Unbury::All), i18n),
+        }
+    }
+
+    fn choose_unbury(&mut self, choice: UnburyChoice, i18n: &I18n) {
+        self.overlay = Overlay::None;
+
+        let UnburyChoice::Unbury(which) = choice else {
+            return;
+        };
+
+        self.change_deck(i18n, |collection, deck| {
+            overview::unbury(collection, deck, which)
+        });
+    }
+
+    /// Runs a change on the overview's deck, then shows the deck again.
+    fn change_deck(
+        &mut self,
+        i18n: &I18n,
+        change: impl FnOnce(&mut Collection, DeckId) -> Result<(), OverviewError>,
+    ) {
+        let (Some(screen), Some(collection)) = (&self.deck_screen, &mut self.collection) else {
+            return;
+        };
+
+        if let Err(error) = change(collection, screen.deck()) {
+            tracing::warn!(?error, "Failed to change the deck");
+            self.notice = Some(error_text::overview(&error, i18n));
+        }
+
+        self.reload_decks(i18n);
+        self.refresh_deck_screen(i18n);
+    }
+
+    fn open_custom_study(&mut self, i18n: &I18n) {
+        let (Some(screen), Some(collection)) = (&self.deck_screen, &mut self.collection) else {
+            return;
+        };
+
+        match overview::custom_study_defaults(collection, screen.deck()) {
+            Ok(defaults) => {
+                self.overlay = Overlay::CustomStudy(CustomStudyForm::new(screen.deck(), defaults));
+            },
+            Err(error) => {
+                tracing::warn!(?error, "Failed to load the custom study options");
+                self.notice = Some(error_text::overview(&error, i18n));
+            },
+        }
+    }
+
+    fn submit_custom_study(&mut self, i18n: &I18n) {
+        let Overlay::CustomStudy(form) = &mut self.overlay else {
+            return;
+        };
+        let Ok(study) = form.submit() else {
+            return;
+        };
+        let deck = form.deck();
+        let Some(collection) = &mut self.collection else {
+            return;
+        };
+
+        match overview::custom_study(collection, deck, study, i18n.anki()) {
+            Ok(next) => {
+                self.overlay = Overlay::None;
+                self.reload_decks(i18n);
+                // The overview fills in the name
+                self.show_deck(next, String::new(), i18n);
+            },
+            // The dialog stays open so the choice can be changed, like in Anki
+            Err(error) => {
+                tracing::warn!(?error, "Custom study failed");
+                self.notice = Some(error_text::overview(&error, i18n));
+            },
+        }
     }
 
     /// Shows the next card, or waits when a sync has the collection.
@@ -829,6 +1024,7 @@ impl State {
         self.notice = Some(error_text::review(error, i18n));
         self.review = None;
         self.reload_decks(i18n);
+        self.refresh_deck_screen(i18n);
     }
 
     fn choose_quit(&mut self, choice: QuitChoice, i18n: &I18n) {
@@ -867,6 +1063,20 @@ impl State {
 
     fn palette_actions(&self) -> Vec<Action> {
         let mut actions = vec![Action::ToggleHelp];
+
+        if self.review.is_none()
+            && let Some(screen) = &self.deck_screen
+        {
+            actions.push(Action::Study);
+
+            if screen.is_filtered() {
+                actions.extend([Action::Rebuild, Action::Empty]);
+            } else {
+                actions.push(Action::CustomStudy);
+            }
+
+            actions.extend([Action::Unbury, Action::CloseOverview]);
+        }
 
         if self.review.is_some() {
             actions.extend([Action::ReplayAudio, Action::EditNote]);
@@ -960,7 +1170,28 @@ impl State {
                     self.start_sync();
                 }
             },
+            Action::OpenDeck => self.open_deck(i18n),
             Action::Study => self.start_review(i18n),
+            Action::CustomStudy => self.open_custom_study(i18n),
+            Action::Unbury => self.unbury(i18n),
+            Action::Rebuild
+                if self
+                    .deck_screen
+                    .as_ref()
+                    .is_some_and(DeckScreen::is_filtered) =>
+            {
+                self.change_deck(i18n, overview::rebuild);
+            },
+            Action::Empty
+                if self
+                    .deck_screen
+                    .as_ref()
+                    .is_some_and(DeckScreen::is_filtered) =>
+            {
+                self.change_deck(i18n, overview::empty);
+            },
+            Action::Rebuild | Action::Empty => {},
+            Action::CloseOverview => self.close_overview(i18n),
             Action::ShowAnswer => self.show_answer(i18n),
             Action::Answer(rating) => self.answer(rating, i18n),
             Action::Undo => self.undo(i18n),
@@ -971,6 +1202,7 @@ impl State {
                 self.audio.stop();
                 self.review = None;
                 self.reload_decks(i18n);
+                self.refresh_deck_screen(i18n);
             },
             Action::Quit => self.quit(i18n),
         }

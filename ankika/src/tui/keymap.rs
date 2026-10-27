@@ -12,6 +12,10 @@ pub enum Context {
     Login,
     FullSync,
     Quit,
+    Unbury,
+    CustomStudy,
+    Overview,
+    FilteredOverview,
     ReviewQuestion,
     /// The question has an input line, so plain characters are typed instead.
     ReviewTyping,
@@ -131,12 +135,42 @@ const fn flag(digit: char, flag: Flag) -> Binding {
 const CLOSE_REVIEW: Binding = Binding::named(KeyCode::Esc, "Esc", Action::CloseReview);
 
 const MAIN: &[Binding] = &[
-    Binding::named(KeyCode::Enter, "Enter", Action::Study),
+    Binding::named(KeyCode::Enter, "Enter", Action::OpenDeck),
     Binding::key('?', Action::ToggleHelp),
     Binding::key(':', Action::OpenPalette),
     Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
     Binding::key('s', Action::Sync),
     Binding::key('q', Action::Quit),
+    QUIT,
+];
+
+const CLOSE_OVERVIEW: Binding = Binding::named(KeyCode::Esc, "Esc", Action::CloseOverview);
+
+const OVERVIEW: &[Binding] = &[
+    Binding::named(KeyCode::Enter, "Enter", Action::Study),
+    Binding::key('c', Action::CustomStudy),
+    Binding::key('u', Action::Unbury),
+    CLOSE_OVERVIEW,
+    Binding::key('q', Action::CloseOverview),
+    Binding::key('s', Action::Sync),
+    Binding::key('?', Action::ToggleHelp),
+    Binding::key(':', Action::OpenPalette),
+    Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
+    QUIT,
+];
+
+/// Filtered decks are rebuilt and emptied instead of offering custom study, like in Anki.
+const FILTERED_OVERVIEW: &[Binding] = &[
+    Binding::named(KeyCode::Enter, "Enter", Action::Study),
+    Binding::key('r', Action::Rebuild),
+    Binding::key('e', Action::Empty),
+    Binding::key('u', Action::Unbury),
+    CLOSE_OVERVIEW,
+    Binding::key('q', Action::CloseOverview),
+    Binding::key('s', Action::Sync),
+    Binding::key('?', Action::ToggleHelp),
+    Binding::key(':', Action::OpenPalette),
+    Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
     QUIT,
 ];
 
@@ -208,7 +242,14 @@ const fn bindings(context: Context) -> &'static [Binding] {
     match context {
         Context::Main => MAIN,
         Context::Help => HELP,
-        Context::Palette | Context::Login | Context::FullSync | Context::Quit => OVERLAY,
+        Context::Palette
+        | Context::Login
+        | Context::FullSync
+        | Context::Quit
+        | Context::Unbury
+        | Context::CustomStudy => OVERLAY,
+        Context::Overview => OVERVIEW,
+        Context::FilteredOverview => FILTERED_OVERVIEW,
         Context::ReviewQuestion => REVIEW_QUESTION,
         Context::ReviewTyping => REVIEW_TYPING,
         Context::ReviewAnswer => REVIEW_ANSWER,
@@ -282,7 +323,7 @@ mod tests {
         assert_eq!(
             groups,
             vec![
-                (Action::Study, vec!["Enter".to_owned()]),
+                (Action::OpenDeck, vec!["Enter".to_owned()]),
                 (Action::ToggleHelp, vec!["?".to_owned()]),
                 (
                     Action::OpenPalette,

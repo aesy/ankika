@@ -1,49 +1,37 @@
 use ankika_core::sync::{FullSyncDirection, FullSyncRequired};
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout, Margin, Rect};
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::layout::Rect;
 
 use crate::i18n::I18n;
 use crate::tui::full_sync_prompt::{Choice, FullSyncPrompt};
 use crate::tui::hit_map::{Hit, HitMap};
 use crate::tui::state::State;
 use crate::tui::theme::Theme;
-use crate::tui::view::buttons::{self, Button};
+use crate::tui::view::buttons::Button;
+use crate::tui::view::prompt::{self, Prompt};
 
 const WIDTH: u16 = 70;
-// Borders, margins, a blank line and the buttons around the explanation
-const FIXED_HEIGHT: u16 = 6;
-// Fixed, since ratatui can't measure wrapped text yet; fits Anki's English at `WIDTH`
+// Fit Anki's English at `WIDTH`
 const CONFLICT_ROWS: u16 = 14;
 const EMPTY_SIDE_ROWS: u16 = 2;
 
 pub fn render(
     frame: &mut Frame<'_>,
     area: Rect,
-    prompt: &FullSyncPrompt,
+    full_sync: &FullSyncPrompt,
     state: &State,
     i18n: &I18n,
     theme: Theme,
     hits: &mut HitMap,
 ) {
-    let (text, rows) = match prompt.required() {
+    let (text, text_rows) = match full_sync.required() {
         FullSyncRequired::Conflict => (i18n.anki().sync_conflict_explanation(), CONFLICT_ROWS),
         FullSyncRequired::UploadOnly => (i18n.anki().sync_confirm_empty_upload(), EMPTY_SIDE_ROWS),
         FullSyncRequired::DownloadOnly => {
             (i18n.anki().sync_confirm_empty_download(), EMPTY_SIDE_ROWS)
         },
     };
-    let height = FIXED_HEIGHT.saturating_add(rows);
-    let popup = area.centered(Constraint::Length(WIDTH), Constraint::Length(height));
-    let title = i18n.text("action-sync");
-    let inner = super::overlay(frame, popup, &title, theme, hits).inner(Margin::new(2, 1));
-    let [text_area, _, button_area] = Layout::vertical([
-        Constraint::Length(rows),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .areas(inner);
-    let choices = prompt.choices();
+    let choices = full_sync.choices();
     let buttons: Vec<Button> = choices
         .items()
         .iter()
@@ -54,9 +42,15 @@ pub fn render(
             focused: choices.focused() == Some(choice),
         })
         .collect();
+    let title = i18n.text("action-sync");
+    let prompt = Prompt {
+        title: &title,
+        text: &text,
+        width: WIDTH,
+        text_rows,
+    };
 
-    frame.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), text_area);
-    buttons::render_right_aligned(frame, button_area, &buttons, state.mouse(), theme, hits);
+    prompt::render(frame, area, &prompt, &buttons, state.mouse(), theme, hits);
 }
 
 fn label(choice: Choice, i18n: &I18n) -> String {

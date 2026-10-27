@@ -1,11 +1,14 @@
 use anki::decks::DeckId;
+use ankika_core::overview::StudyKind;
 use ankika_core::review::SoundRef;
 use ratatui::layout::{Position, Rect};
 
 use crate::tui::action::Action;
+use crate::tui::custom_study_form;
 use crate::tui::full_sync_prompt::Choice;
 use crate::tui::login_form::Field;
 use crate::tui::quit_prompt::QuitChoice;
+use crate::tui::unbury_prompt::UnburyChoice;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hit {
@@ -14,6 +17,10 @@ pub enum Hit {
     LoginField(Field),
     FullSyncChoice(Choice),
     QuitChoice(QuitChoice),
+    UnburyChoice(UnburyChoice),
+    CustomStudyChoice(custom_study_form::Choice),
+    CustomStudyKind(StudyKind),
+    CustomStudyField(custom_study_form::Field),
     Deck(DeckId),
     Sound(SoundRef),
     /// The expand or collapse arrow in front of a deck.

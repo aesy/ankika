@@ -1,13 +1,17 @@
 mod buttons;
+mod custom_study;
 mod footer;
 mod full_sync;
 mod header;
 mod help;
 mod home;
 mod login;
+mod overview;
 mod palette;
+mod prompt;
 mod quit;
 mod review;
+mod unbury;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -54,7 +58,12 @@ pub fn render(
 
             review::render(frame, main_area, review, &context, &mut hits);
         },
-        None => home::render(frame, main_area, state, i18n, theme, &mut hits),
+        None => match state.deck_screen() {
+            Some(screen) => {
+                overview::render(frame, main_area, screen, state, i18n, theme, &mut hits);
+            },
+            None => home::render(frame, main_area, state, i18n, theme, &mut hits),
+        },
     }
     footer::render(frame, footer_area, state, i18n, theme, &mut hits);
 
@@ -67,6 +76,12 @@ pub fn render(
             full_sync::render(frame, area, prompt, state, i18n, theme, &mut hits);
         },
         Overlay::Quit(choices) => quit::render(frame, area, choices, state, i18n, theme, &mut hits),
+        Overlay::Unbury(choices) => {
+            unbury::render(frame, area, choices, state, i18n, theme, &mut hits);
+        },
+        Overlay::CustomStudy(form) => {
+            custom_study::render(frame, area, form, state, i18n, theme, &mut hits);
+        },
     }
 
     hits

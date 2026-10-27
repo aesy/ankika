@@ -2,6 +2,7 @@ use ankika_core::card_actions::CardActionError;
 use ankika_core::decks::DeckError;
 use ankika_core::login::LoginError;
 use ankika_core::note_edit::NoteEditError;
+use ankika_core::overview::OverviewError;
 use ankika_core::review::ReviewError;
 use ankika_core::sync::SyncError;
 
@@ -69,4 +70,11 @@ pub fn editor(error: &EditorError, i18n: &I18n) -> String {
             i18n.text("error-editor-file")
         },
     }
+}
+
+pub fn overview(error: &OverviewError, i18n: &I18n) -> String {
+    error.anki_error().map_or_else(
+        || i18n.text("error-deck-missing"),
+        |anki_error| anki_error.message(i18n.anki()),
+    )
 }

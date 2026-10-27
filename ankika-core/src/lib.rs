@@ -7,6 +7,7 @@ pub mod lock;
 pub mod login;
 pub mod media_sync;
 pub mod note_edit;
+pub mod overview;
 pub mod paths;
 mod remote;
 pub mod review;
