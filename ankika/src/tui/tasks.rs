@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use anki::collection::Collection;
 use ankika_core::collection::CollectionError;
 use ankika_core::login::{self, LoginError};
+use ankika_core::maintenance::{self, EmptyCards, MaintenanceError, MediaReport};
 use ankika_core::media_sync;
 use ankika_core::packages::{
     self, Contents, ExportScope, Format, ImportOptions, ImportSummary, PackageError,
@@ -45,6 +46,10 @@ pub enum TaskResult {
         collection: Result<Collection, CollectionError>,
         result: Result<PackageDone, PackageError>,
     },
+    Maintenance {
+        collection: Collection,
+        result: Result<MaintenanceDone, MaintenanceError>,
+    },
 }
 
 pub enum PackageJob {
@@ -73,6 +78,38 @@ pub enum PackageDone {
     Replaced,
     ExportedNotes(usize),
     ExportedCollection,
+}
+
+pub enum MaintenanceJob {
+    CheckDatabase,
+    CheckMedia,
+    /// Changes the media folder, then checks it again.
+    ChangeMedia(MediaChange),
+    FindEmptyCards,
+    DeleteCards(Vec<i64>),
+}
+
+pub enum MediaChange {
+    Trash(Vec<String>),
+    EmptyTrash,
+    RestoreTrash,
+}
+
+pub enum MaintenanceDone {
+    Database(Vec<String>),
+    Media {
+        report: MediaReport,
+        changed: Option<MediaChanged>,
+    },
+    EmptyCards(EmptyCards),
+    DeletedCards(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaChanged {
+    Trashed(usize),
+    TrashEmptied,
+    TrashRestored,
 }
 
 /// Starts background work; results come back to the event loop through the channel.
@@ -214,6 +251,15 @@ impl Tasks {
         });
     }
 
+    /// Checks or cleans up with the collection on its own thread, like a sync.
+    pub fn maintenance(&mut self, mut collection: Collection, job: MaintenanceJob) {
+        self.spawn_sync(move || async move {
+            let result = run_maintenance(&mut collection, job);
+
+            Some(TaskResult::Maintenance { collection, result })
+        });
+    }
+
     pub fn media_sync(
         &mut self,
         collection: &Collection,
@@ -264,6 +310,41 @@ impl Tasks {
             }
         });
     }
+}
+
+fn run_maintenance(
+    collection: &mut Collection,
+    job: MaintenanceJob,
+) -> Result<MaintenanceDone, MaintenanceError> {
+    let changed = match job {
+        MaintenanceJob::CheckDatabase => {
+            return maintenance::check_database(collection).map(MaintenanceDone::Database);
+        },
+        MaintenanceJob::FindEmptyCards => {
+            return maintenance::empty_cards(collection).map(MaintenanceDone::EmptyCards);
+        },
+        MaintenanceJob::DeleteCards(cards) => {
+            return maintenance::delete_cards(collection, cards).map(MaintenanceDone::DeletedCards);
+        },
+        MaintenanceJob::CheckMedia => None,
+        MaintenanceJob::ChangeMedia(MediaChange::Trash(files)) => {
+            let count = files.len();
+
+            maintenance::trash_files(collection, files)?;
+            Some(MediaChanged::Trashed(count))
+        },
+        MaintenanceJob::ChangeMedia(MediaChange::EmptyTrash) => {
+            maintenance::empty_trash(collection)?;
+            Some(MediaChanged::TrashEmptied)
+        },
+        MaintenanceJob::ChangeMedia(MediaChange::RestoreTrash) => {
+            maintenance::restore_trash(collection)?;
+            Some(MediaChanged::TrashRestored)
+        },
+    };
+    let report = maintenance::check_media(collection)?;
+
+    Ok(MaintenanceDone::Media { report, changed })
 }
 
 fn send(sender: &UnboundedSender<TaskResult>, result: TaskResult) {

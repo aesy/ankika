@@ -15,6 +15,7 @@ mod overview;
 mod prompt;
 mod quit;
 mod replace;
+mod report;
 mod review;
 mod stats;
 mod tag_input;
@@ -178,6 +179,7 @@ fn render_overlay(
         Overlay::DeckOptions(dialog) => {
             form::render(frame, area, dialog.form(), state.mouse(), i18n, theme, hits);
         },
+        Overlay::Report(report) => report::render(frame, area, report, state, i18n, theme, hits),
     }
 }
 

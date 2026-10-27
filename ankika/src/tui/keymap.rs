@@ -161,6 +161,7 @@ const MAIN: &[Binding] = &[
     Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
     Binding::key('s', Action::Sync),
     Binding::key('q', Action::Quit),
+    UNDO,
     QUIT,
 ];
 
@@ -432,6 +433,7 @@ mod tests {
                 ),
                 (Action::Sync, vec!["s".to_owned()]),
                 (Action::Quit, vec!["q".to_owned(), "Ctrl+C".to_owned()]),
+                (Action::Undo, vec!["Ctrl+Z".to_owned()]),
             ]
         );
     }

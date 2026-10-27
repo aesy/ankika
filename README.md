@@ -38,6 +38,9 @@ cargo build --release
 | `ankika sync`              | Syncs the collection and media, for timers                    |
 | `ankika import <FILE>`     | Imports an `.apkg`, or replaces the collection with a `.colpkg` |
 | `ankika export <FILE>`     | Exports the collection or `--deck` as `.apkg`, or a `.colpkg` |
+| `ankika check-database`    | Anki's Check Database report                                  |
+| `ankika check-media`       | Missing and unused media; `--delete-unused`, `--empty-trash`, `--restore-trash` |
+| `ankika empty-cards`       | Cards with an empty front; `--delete`, `--no-keep-notes`      |
 | `ankika completions <SHELL>` | A completion script for bash, zsh, fish, elvish or PowerShell |
 | `ankika man`               | The man page                                                  |
 

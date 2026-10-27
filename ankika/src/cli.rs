@@ -76,6 +76,12 @@ pub enum Command {
     Import(ImportArgs),
     /// Export the collection or a deck as .apkg, or the whole collection as .colpkg
     Export(ExportArgs),
+    /// Check the collection for problems and fix them, like Anki's Check Database
+    CheckDatabase,
+    /// Report missing and unused media files
+    CheckMedia(CheckMediaArgs),
+    /// Report cards whose front is empty, and optionally delete them
+    EmptyCards(EmptyCardsArgs),
     /// Print a shell completion script
     Completions { shell: clap_complete::Shell },
     /// Print the man page
@@ -154,6 +160,29 @@ pub struct ContentFlags {
     /// Include deck presets (.apkg)
     #[arg(long)]
     pub with_presets: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct CheckMediaArgs {
+    /// Move the unused files to Anki's media trash
+    #[arg(long)]
+    pub delete_unused: bool,
+    /// Delete the files in the media trash for good
+    #[arg(long, conflicts_with = "restore_trash")]
+    pub empty_trash: bool,
+    /// Put the files in the media trash back
+    #[arg(long)]
+    pub restore_trash: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct EmptyCardsArgs {
+    /// Delete the empty cards
+    #[arg(long)]
+    pub delete: bool,
+    /// Also delete notes left without cards, instead of keeping their first card
+    #[arg(long)]
+    pub no_keep_notes: bool,
 }
 
 #[derive(Debug, Args)]

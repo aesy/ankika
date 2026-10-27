@@ -79,3 +79,6 @@ package-import-summary = Imported { $found } notes: { $new } new, { $updated } u
 package-replaced = Collection replaced. The next sync will be a full sync.
 package-replace-question = Replace this profile's whole collection and media with { $file }? This can't be undone.
 package-replace = Replace
+
+busy-checking = Checking...
+maintenance-restore-trash = Restore Deleted

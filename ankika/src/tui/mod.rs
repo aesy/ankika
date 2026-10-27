@@ -21,6 +21,7 @@ mod package_forms;
 mod palette;
 mod quit_prompt;
 mod replace_prompt;
+mod report;
 mod review;
 mod settings_form;
 mod state;

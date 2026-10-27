@@ -75,6 +75,8 @@ pub fn render(
             i18n.anki().exporting_exporting_file().into_owned(),
             theme.muted,
         ),
+        Some(Busy::Checking) => (i18n.text("busy-checking"), theme.muted),
+        Some(Busy::Deleting) => (i18n.anki().empty_cards_deleting().into_owned(), theme.muted),
         None => match state.sync_status() {
             SyncStatus::Syncing => (i18n.anki().sync_syncing().into_owned(), theme.muted),
             _ if state.media_syncing() => (i18n.text("sync-status-media"), theme.muted),

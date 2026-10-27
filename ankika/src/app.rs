@@ -11,6 +11,7 @@ use crate::command::due::{self, DueCommandError};
 use crate::command::export::{self, ExportCommandError};
 use crate::command::import::{self, ImportCommandError};
 use crate::command::login::LoginCommandError;
+use crate::command::maintenance::{self, MaintenanceCommandError};
 use crate::command::profile::{self, ProfileCommandError};
 use crate::command::sync::{self, SyncCommandError};
 use crate::command::{completions, login, logout, man};
@@ -54,6 +55,8 @@ pub enum AppError {
     Import(#[from] ImportCommandError),
     #[error(transparent)]
     Export(#[from] ExportCommandError),
+    #[error(transparent)]
+    Maintenance(#[from] MaintenanceCommandError),
     #[error("Failed to print the man page")]
     PrintManPage(#[source] io::Error),
     #[error("Failed to print the completion script")]
@@ -135,6 +138,21 @@ pub async fn run(cli: Cli) -> Result<(), AppError> {
             let paths = base.with_profile(&choose_profile(&base, cli.profile, false)?);
 
             export::run(&paths, &args, cli.json)?;
+        },
+        Some(Command::CheckDatabase) => {
+            let paths = base.with_profile(&choose_profile(&base, cli.profile, false)?);
+
+            maintenance::check_database(&paths, cli.json)?;
+        },
+        Some(Command::CheckMedia(args)) => {
+            let paths = base.with_profile(&choose_profile(&base, cli.profile, false)?);
+
+            maintenance::check_media(&paths, &args, cli.json)?;
+        },
+        Some(Command::EmptyCards(args)) => {
+            let paths = base.with_profile(&choose_profile(&base, cli.profile, false)?);
+
+            maintenance::empty_cards(&paths, &args, cli.json)?;
         },
         Some(Command::Completions { shell }) => {
             completions::run(shell).map_err(AppError::PrintCompletions)?;

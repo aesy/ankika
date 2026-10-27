@@ -44,11 +44,12 @@ use crate::tui::overview::DeckScreen;
 use crate::tui::palette::{self, Palette};
 use crate::tui::quit_prompt::{self, QuitChoice};
 use crate::tui::replace_prompt::ReplacePrompt;
+use crate::tui::report::Report;
 use crate::tui::review::{Review, Stage};
 use crate::tui::settings_form;
 use crate::tui::stats_screen::StatsScreen;
 use crate::tui::tag_input::TagInput;
-use crate::tui::tasks::{TaskResult, Tasks};
+use crate::tui::tasks::{MaintenanceJob, TaskResult, Tasks};
 use crate::tui::unbury_prompt::{self, UnburyChoice};
 
 pub enum Overlay {
@@ -78,6 +79,7 @@ pub enum Overlay {
     ConfirmReplace(ReplacePrompt),
     /// Boxed, since the preset makes it much larger than the other overlays.
     DeckOptions(Box<DeckOptionsDialog>),
+    Report(Report),
 }
 
 pub struct DeckOptionsDialog {
@@ -94,6 +96,7 @@ impl DeckOptionsDialog {
 
 /// A note for the editor, and what to do with it afterwards.
 mod browsing;
+mod maintenance;
 mod packaging;
 
 pub struct EditRequest {
@@ -111,6 +114,8 @@ enum Purpose {
 pub enum Busy {
     Importing,
     Exporting,
+    Checking,
+    Deleting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -341,7 +346,7 @@ impl State {
             | Overlay::DeckOptions(_)
             | Overlay::Import(_)
             | Overlay::Export { .. } => Context::Form,
-            Overlay::ConfirmReplace(_) => Context::Confirm,
+            Overlay::ConfirmReplace(_) | Overlay::Report(_) => Context::Confirm,
         }
     }
 
@@ -506,6 +511,9 @@ impl State {
             TaskResult::Package { collection, result } => {
                 self.finish_package(collection, result, i18n);
             },
+            TaskResult::Maintenance { collection, result } => {
+                self.finish_maintenance(collection, result, i18n);
+            },
             TaskResult::MediaSynced(result) => {
                 self.media_sync = None;
 
@@ -654,22 +662,7 @@ impl State {
                     self.choose_unbury(choice, i18n);
                 }
             },
-            Overlay::CustomStudy(form) => match key.code {
-                KeyCode::Tab => form.focus_next(),
-                KeyCode::BackTab => form.focus_previous(),
-                KeyCode::Up | KeyCode::Left => form.step(false),
-                KeyCode::Down | KeyCode::Right => form.step(true),
-                KeyCode::Backspace => form.pop(),
-                KeyCode::Enter if form.focus() == custom_study_form::Field::Cancel => {
-                    self.overlay = Overlay::None;
-                },
-                KeyCode::Enter => self.submit_custom_study(i18n),
-                _ => {
-                    if let Some(character) = typed {
-                        form.push(character);
-                    }
-                },
-            },
+            Overlay::CustomStudy(_) => self.handle_custom_study_key(key.code, typed, i18n),
             Overlay::Add(_) => self.handle_add_key(key.code, typed, i18n),
             Overlay::ChangeDeck(_) | Overlay::SortBy(_) | Overlay::Tags { .. } => {
                 self.handle_browser_overlay_key(key.code, typed, i18n);
@@ -682,6 +675,11 @@ impl State {
             Overlay::ConfirmReplace(prompt) => {
                 if let Some(choice) = navigate(&mut prompt.choices, key.code) {
                     self.choose_replace(choice);
+                }
+            },
+            Overlay::Report(report) => {
+                if let Some(button) = report.handle_key(key.code) {
+                    self.press_report_button(button);
                 }
             },
             Overlay::Settings(_)
@@ -720,6 +718,29 @@ impl State {
         }
     }
 
+    fn handle_custom_study_key(&mut self, code: KeyCode, typed: Option<char>, i18n: &I18n) {
+        let Overlay::CustomStudy(form) = &mut self.overlay else {
+            return;
+        };
+
+        match code {
+            KeyCode::Tab => form.focus_next(),
+            KeyCode::BackTab => form.focus_previous(),
+            KeyCode::Up | KeyCode::Left => form.step(false),
+            KeyCode::Down | KeyCode::Right => form.step(true),
+            KeyCode::Backspace => form.pop(),
+            KeyCode::Enter if form.focus() == custom_study_form::Field::Cancel => {
+                self.overlay = Overlay::None;
+            },
+            KeyCode::Enter => self.submit_custom_study(i18n),
+            _ => {
+                if let Some(character) = typed {
+                    form.push(character);
+                }
+            },
+        }
+    }
+
     fn handle_mouse(&mut self, mouse: MouseEvent, i18n: &I18n) {
         let position = Position::new(mouse.column, mouse.row);
         let hit = self.hits.at(position);
@@ -739,6 +760,7 @@ impl State {
             },
             MouseEventKind::ScrollUp => match &mut self.overlay {
                 Overlay::Palette(palette) => palette.select_previous(),
+                Overlay::Report(report) => report.scroll_by(-1),
                 Overlay::ChangeDeck(list) => list.select_previous(),
                 Overlay::SortBy(list) => list.select_previous(),
                 Overlay::None if self.browser.is_some() => {
@@ -760,6 +782,7 @@ impl State {
             },
             MouseEventKind::ScrollDown => match &mut self.overlay {
                 Overlay::Palette(palette) => palette.select_next(),
+                Overlay::Report(report) => report.scroll_by(1),
                 Overlay::ChangeDeck(list) => list.select_next(),
                 Overlay::SortBy(list) => list.select_next(),
                 Overlay::None if self.browser.is_some() => {
@@ -796,6 +819,7 @@ impl State {
             },
             Some(Hit::BrowserColumn(column)) => self.sort_by(column, i18n),
             Some(Hit::ReplaceChoice(choice)) => self.choose_replace(choice),
+            Some(Hit::ReportButton(button)) => self.press_report_button(button),
             Some(Hit::Form(focus)) => {
                 if let Some(form) = self.overlay_form() {
                     let outcome = form.click(focus);
@@ -1526,6 +1550,11 @@ impl State {
     }
 
     fn undo(&mut self, i18n: &I18n) {
+        if self.review.is_none() {
+            self.undo_outside_review(i18n);
+            return;
+        }
+
         let (Some(review), Some(collection)) = (&mut self.review, &mut self.collection) else {
             return;
         };
@@ -1542,6 +1571,21 @@ impl State {
             Ok(false) => {},
             Err(error) => self.fail_review(&error, i18n),
         }
+    }
+
+    /// Undoes changes like deleted empty cards or an import, as Anki's Edit menu does.
+    fn undo_outside_review(&mut self, i18n: &I18n) {
+        let Some(collection) = &mut self.collection else {
+            return;
+        };
+
+        if let Err(error) = review::undo(collection) {
+            tracing::warn!(?error, "Undo failed");
+            self.notice = Some(error.anki_error().message(i18n.anki()));
+        }
+
+        self.reload_decks(i18n);
+        self.refresh_deck_screen(i18n);
     }
 
     /// Plays the side on screen: as Replay Audio, or automatically when the deck allows it.
@@ -1680,15 +1724,22 @@ impl State {
                 Action::Undo,
                 Action::CloseReview,
             ]);
-        } else if self.session.is_some() {
-            actions.extend([Action::Sync, Action::LogOut]);
         } else {
-            actions.push(Action::LogIn);
+            actions.push(Action::Undo);
+
+            if self.session.is_some() {
+                actions.extend([Action::Sync, Action::LogOut]);
+            } else {
+                actions.push(Action::LogIn);
+            }
         }
 
         actions.extend([
             Action::ImportPackage,
             Action::ExportPackage,
+            Action::CheckDatabase,
+            Action::CheckMedia,
+            Action::EmptyCards,
             Action::OpenSettings,
             Action::SwitchProfile,
             Action::Quit,
@@ -1801,6 +1852,15 @@ impl State {
             Action::SwitchProfile => self.open_profile_picker(i18n),
             Action::ImportPackage => self.open_import(i18n),
             Action::ExportPackage => self.open_export(i18n),
+            Action::CheckDatabase => {
+                self.start_maintenance(MaintenanceJob::CheckDatabase, Busy::Checking);
+            },
+            Action::CheckMedia => {
+                self.start_maintenance(MaintenanceJob::CheckMedia, Busy::Checking);
+            },
+            Action::EmptyCards => {
+                self.start_maintenance(MaintenanceJob::FindEmptyCards, Busy::Checking);
+            },
             Action::OpenSettings => {
                 self.overlay = Overlay::Settings(settings_form::new(&self.config, i18n));
             },

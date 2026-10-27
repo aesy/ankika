@@ -4,6 +4,7 @@ pub mod export;
 pub mod import;
 pub mod login;
 pub mod logout;
+pub mod maintenance;
 pub mod man;
 mod output;
 pub mod profile;

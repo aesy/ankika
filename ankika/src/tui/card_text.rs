@@ -203,7 +203,7 @@ const fn sound_style(playing: bool, theme: Theme) -> Style {
     }
 }
 
-fn escape(text: &str) -> String {
+pub fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

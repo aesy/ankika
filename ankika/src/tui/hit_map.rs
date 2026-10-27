@@ -11,6 +11,7 @@ use crate::tui::full_sync_prompt::Choice;
 use crate::tui::login_form::Field;
 use crate::tui::quit_prompt::QuitChoice;
 use crate::tui::replace_prompt::ReplaceChoice;
+use crate::tui::report::ReportButton;
 use crate::tui::unbury_prompt::UnburyChoice;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +34,7 @@ pub enum Hit {
     BrowserSearch,
     Form(form::Focus),
     ReplaceChoice(ReplaceChoice),
+    ReportButton(ReportButton),
     Deck(DeckId),
     Sound(SoundRef),
     /// The expand or collapse arrow in front of a deck.
