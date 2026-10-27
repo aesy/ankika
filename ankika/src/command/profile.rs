@@ -13,12 +13,21 @@ pub enum ProfileCommandError {
     ReadAnswer(#[source] io::Error),
 }
 
-pub fn run(paths: &Paths, command: ProfileCommand) -> Result<(), ProfileCommandError> {
+pub fn run(paths: &Paths, command: ProfileCommand, json: bool) -> Result<(), ProfileCommandError> {
     match command {
         ProfileCommand::List => {
             let last = profiles::last_used(paths);
+            let names = profiles::list(paths)?;
 
-            for name in profiles::list(paths)? {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({ "profiles": names, "last_used": last })
+                );
+                return Ok(());
+            }
+
+            for name in names {
                 let marker = if last.as_deref() == Some(name.as_str()) {
                     "*"
                 } else {

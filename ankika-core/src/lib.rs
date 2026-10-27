@@ -5,6 +5,7 @@ pub mod card_actions;
 pub mod collection;
 pub mod deck_options;
 pub mod decks;
+pub mod due;
 pub mod host_key;
 pub mod lock;
 pub mod login;

@@ -5,6 +5,7 @@ use ankika_core::card_actions::{self, CardAction, Flag, Outcome};
 use ankika_core::collection::CollectionError;
 use ankika_core::deck_options::{self, DeckOptions};
 use ankika_core::decks;
+use ankika_core::due::{self, DueSnapshot};
 use ankika_core::note_edit::NoteText;
 use ankika_core::overview::{self, OverviewError, Unbury};
 use ankika_core::paths::Paths;
@@ -354,7 +355,14 @@ impl State {
         }
 
         match decks::deck_tree(collection) {
-            Ok(tree) => self.decks.set_decks(tree),
+            Ok(tree) => {
+                // For `ankika due`, which can't open the collection while it's open here
+                if let Err(error) = due::write_cache(&self.paths, &DueSnapshot::new(&tree)) {
+                    tracing::warn!(?error, "Failed to save the due counts");
+                }
+
+                self.decks.set_decks(tree);
+            },
             Err(error) => {
                 tracing::warn!(?error, "Failed to load the deck list");
                 self.notice = Some(error_text::decks(&error, i18n));

@@ -7,9 +7,11 @@ use ankika_core::profiles::{self, ProfileError};
 use ankika_core::session::SessionError;
 
 use crate::cli::{Cli, Command};
+use crate::command::due::{self, DueCommandError};
 use crate::command::login::LoginCommandError;
 use crate::command::profile::{self, ProfileCommandError};
-use crate::command::{login, logout};
+use crate::command::sync::{self, SyncCommandError};
+use crate::command::{completions, login, logout, man};
 use crate::config::{self, ConfigError};
 use crate::i18n::{I18n, I18nError};
 use crate::logging::{self, LoggingError};
@@ -42,6 +44,14 @@ pub enum AppError {
     UnknownProfile { name: String },
     #[error("Failed to read the profile choice")]
     PickProfile(#[source] io::Error),
+    #[error(transparent)]
+    Due(#[from] DueCommandError),
+    #[error(transparent)]
+    Sync(#[from] SyncCommandError),
+    #[error("Failed to print the man page")]
+    PrintManPage(#[source] io::Error),
+    #[error("Failed to print the completion script")]
+    PrintCompletions(#[source] io::Error),
     #[error(transparent)]
     Login(#[from] LoginCommandError),
     #[error(transparent)]
@@ -99,7 +109,21 @@ pub async fn run(cli: Cli) -> Result<(), AppError> {
 
             logout::run(&paths)?;
         },
-        Some(Command::Profile(command)) => profile::run(&base, command)?,
+        Some(Command::Profile(command)) => profile::run(&base, command, cli.json)?,
+        Some(Command::Due(args)) => {
+            let paths = base.with_profile(&choose_profile(&base, cli.profile, false)?);
+
+            due::run(&paths, args.deck.as_deref(), args.verbose_counts, cli.json)?;
+        },
+        Some(Command::Sync) => {
+            let paths = base.with_profile(&choose_profile(&base, cli.profile, false)?);
+
+            sync::run(&paths, cli.json).await?;
+        },
+        Some(Command::Completions { shell }) => {
+            completions::run(shell).map_err(AppError::PrintCompletions)?;
+        },
+        Some(Command::Man) => man::run().map_err(AppError::PrintManPage)?,
     }
 
     Ok(())

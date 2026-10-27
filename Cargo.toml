@@ -24,6 +24,8 @@ ankika-core = { path = "ankika-core" }
 anki = { git = "https://github.com/ankitects/anki.git", tag = "26.09.3" }
 anki_proto = { git = "https://github.com/ankitects/anki.git", tag = "26.09.3" }
 clap = "4.6.7"
+clap_complete = "4.6.11"
+clap_mangen = "0.3.3"
 crossterm = "0.29.0"
 directories = "6.0.0"
 fluent-bundle = "0.16.0"

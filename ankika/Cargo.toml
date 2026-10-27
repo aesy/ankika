@@ -16,6 +16,8 @@ publish.workspace = true
 anki = { workspace = true }
 ankika-core = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
+clap_complete = { workspace = true }
+clap_mangen = { workspace = true }
 crossterm = { workspace = true, features = ["event-stream"] }
 fluent-bundle = { workspace = true }
 futures-util = { workspace = true }
@@ -27,6 +29,7 @@ ratatui-image = { workspace = true }
 rodio = { workspace = true }
 rpassword = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 toml = { workspace = true }

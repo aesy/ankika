@@ -30,7 +30,16 @@ cargo build --release
 | `--images <MODE>`     | `ANKIKA_IMAGES`      | `images` in `config.toml`, else `auto` |
 | `-v`, `-vv`           | `RUST_LOG`           | `info`                               |
 
-`ankika login` and `ankika logout` manage the AnkiWeb login without opening the TUI.
+`ankika login` and `ankika logout` manage the AnkiWeb login without opening the TUI. For scripts:
+
+| Command                    | Prints                                                        |
+|----------------------------|---------------------------------------------------------------|
+| `ankika due`               | Cards due today, for status bars; `--verbose-counts`, `--deck` |
+| `ankika sync`              | Syncs the collection and media, for timers                    |
+| `ankika completions <SHELL>` | A completion script for bash, zsh, fish, elvish or PowerShell |
+| `ankika man`               | The man page                                                  |
+
+`--json` makes `due`, `sync` and `profile list` print JSON.
 
 ## Profiles
 

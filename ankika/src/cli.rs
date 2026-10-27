@@ -36,6 +36,10 @@ pub struct Cli {
     #[arg(long, global = true, env = "ANKIKA_IMAGES", value_name = "MODE")]
     pub images: Option<ImageMode>,
 
+    /// Print JSON instead of text, for scripts
+    #[arg(long, global = true)]
+    pub json: bool,
+
     /// Log more detail: -v for debug, -vv for trace. `RUST_LOG` takes precedence
     #[arg(short, long, global = true, action = ArgAction::Count)]
     pub verbose: u8,
@@ -63,6 +67,24 @@ pub enum Command {
     /// List, add, rename or remove profiles
     #[command(subcommand)]
     Profile(ProfileCommand),
+    /// Print how many cards are due today, for status bars
+    Due(DueArgs),
+    /// Sync the collection and media without opening the TUI
+    Sync,
+    /// Print a shell completion script
+    Completions { shell: clap_complete::Shell },
+    /// Print the man page
+    Man,
+}
+
+#[derive(Debug, Args)]
+pub struct DueArgs {
+    /// Only this deck, by its full name like `Languages::Spanish`
+    #[arg(long, value_name = "NAME")]
+    pub deck: Option<String>,
+    /// Also show new, learning and review counts
+    #[arg(long)]
+    pub verbose_counts: bool,
 }
 
 #[derive(Debug, Subcommand)]

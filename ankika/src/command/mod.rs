@@ -1,3 +1,8 @@
+pub mod completions;
+pub mod due;
 pub mod login;
 pub mod logout;
+pub mod man;
+mod output;
 pub mod profile;
+pub mod sync;

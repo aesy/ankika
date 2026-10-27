@@ -120,6 +120,14 @@ impl Paths {
         self.config.join("config.toml")
     }
 
+    /// Today's counts as the TUI last showed them, per profile.
+    #[must_use]
+    pub fn due_cache_file(&self) -> PathBuf {
+        self.cache
+            .join("due")
+            .join(format!("{}.json", self.profile))
+    }
+
     /// The profile opened last, for the next start.
     #[must_use]
     pub fn last_profile_file(&self) -> PathBuf {
