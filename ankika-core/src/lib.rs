@@ -12,6 +12,7 @@ pub mod media_sync;
 pub mod note_edit;
 pub mod overview;
 pub mod paths;
+pub mod profiles;
 mod remote;
 pub mod review;
 pub mod session;

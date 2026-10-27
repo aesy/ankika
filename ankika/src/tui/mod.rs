@@ -65,6 +65,13 @@ pub enum TuiError {
     LostCollection(CollectionError),
 }
 
+/// How the TUI ended.
+pub enum Exit {
+    Quit,
+    /// Open this profile next.
+    SwitchProfile(String),
+}
+
 /// Command line flags and environment variables, which win over the config file.
 pub struct Overrides {
     pub sync_server: Option<String>,
@@ -77,7 +84,7 @@ pub async fn run(
     collection: Collection,
     config: Config,
     overrides: Overrides,
-) -> Result<(), TuiError> {
+) -> Result<Exit, TuiError> {
     let sync_server = overrides.sync_server.or_else(|| config.sync_server.clone());
     let image_mode = overrides.images.unwrap_or(config.images);
     let sessions = SessionStore::new(paths);
@@ -92,14 +99,7 @@ pub async fn run(
     let audio = Audio::start(paths.media_dir(), sender.clone());
     let tasks = Tasks::new(sender, sessions, sync_server);
     let sync_on_start = config.sync_on_start;
-    let mut state = State::new(
-        session,
-        collection,
-        tasks,
-        audio,
-        config,
-        paths.config_file(),
-    );
+    let mut state = State::new(session, collection, tasks, audio, config, paths.clone());
 
     if let Some(notice) = notice {
         state.set_notice(notice);
@@ -114,11 +114,16 @@ pub async fn run(
     let mut terminal = terminal::init().map_err(TuiError::Init)?;
     let images = Images::detect(image_mode, paths.media_dir());
     let result = event_loop(&mut terminal, &mut state, &images, receiver, i18n).await;
+    // The next profile sets the terminal up again
+    terminal::discard_wakeup();
     let restored = terminal::restore().map_err(TuiError::Restore);
 
     close(&mut state);
 
     let lost_collection = state.take_lost_collection();
+    let exit = state
+        .take_switch_profile()
+        .map_or(Exit::Quit, Exit::SwitchProfile);
 
     state.into_tasks().shutdown().await;
 
@@ -127,7 +132,7 @@ pub async fn run(
     }
 
     result?;
-    restored
+    restored.map(|()| exit)
 }
 
 /// A sync that was skipped on quit still holds the collection; it closes when the sync stops.

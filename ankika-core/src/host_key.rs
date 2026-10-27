@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use keyring::Entry;
 
-use crate::paths::Paths;
+use crate::paths::{DEFAULT_PROFILE, Paths};
 
 const KEYRING_SERVICE: &str = "ankika";
 const KEYRING_ACCOUNT: &str = "ankiweb-host-key";
@@ -47,18 +47,28 @@ pub enum HostKeyError {
 #[derive(Debug, Clone)]
 pub struct HostKeyStore {
     file: PathBuf,
+    /// The keyring entry's account, one per profile.
+    account: String,
 }
 
 impl HostKeyStore {
     #[must_use]
     pub fn new(paths: &Paths) -> Self {
+        // The default profile keeps the entry from before profiles existed
+        let account = if paths.profile() == DEFAULT_PROFILE {
+            KEYRING_ACCOUNT.to_owned()
+        } else {
+            format!("{KEYRING_ACCOUNT}:{}", paths.profile())
+        };
+
         Self {
             file: paths.host_key_file(),
+            account,
         }
     }
 
     pub fn load(&self) -> Result<Option<String>, HostKeyError> {
-        let Some(entry) = keyring_entry()? else {
+        let Some(entry) = keyring_entry(&self.account)? else {
             return self.load_file();
         };
 
@@ -71,14 +81,14 @@ impl HostKeyStore {
     }
 
     pub fn save(&self, key: &str) -> Result<(), HostKeyError> {
-        keyring_entry()?.map_or_else(
+        keyring_entry(&self.account)?.map_or_else(
             || self.save_file(key),
             |entry| entry.set_password(key).map_err(HostKeyError::Keyring),
         )
     }
 
     pub fn delete(&self) -> Result<(), HostKeyError> {
-        if let Some(entry) = keyring_entry()? {
+        if let Some(entry) = keyring_entry(&self.account)? {
             match entry.delete_credential() {
                 Ok(()) | Err(keyring::Error::NoEntry) => {},
                 Err(error) => return Err(HostKeyError::Keyring(error)),
@@ -122,8 +132,8 @@ impl HostKeyStore {
 }
 
 /// `None` when the platform has no keyring to use.
-fn keyring_entry() -> Result<Option<Entry>, HostKeyError> {
-    match Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT) {
+fn keyring_entry(account: &str) -> Result<Option<Entry>, HostKeyError> {
+    match Entry::new(KEYRING_SERVICE, account) {
         Ok(entry) => Ok(Some(entry)),
         Err(keyring::Error::NoDefaultStore) => {
             tracing::warn!("No system keyring available, storing the AnkiWeb host key in a file");

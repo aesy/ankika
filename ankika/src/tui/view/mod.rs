@@ -155,6 +155,16 @@ fn render_overlay(
         Overlay::Tags { remove, input } => {
             tags::render(frame, area, *remove, input, i18n, theme, hits);
         },
+        Overlay::Profiles(list) => {
+            let title = Action::SwitchProfile.label(i18n);
+            let placeholder = i18n.text("picker-placeholder");
+            let labels = fuzzy_list::Labels {
+                title: &title,
+                placeholder: &placeholder,
+            };
+
+            fuzzy_list::render(frame, area, list, &labels, i18n, theme, hits);
+        },
         Overlay::Settings(settings) => {
             form::render(frame, area, settings, state.mouse(), i18n, theme, hits);
         },

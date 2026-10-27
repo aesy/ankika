@@ -2,9 +2,11 @@ use std::io;
 use std::panic;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use std::time::Duration;
+
 use crossterm::event::{
-    DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
-    PushKeyboardEnhancementFlags,
+    self, DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{execute, terminal::supports_keyboard_enhancement};
@@ -42,6 +44,15 @@ pub fn resume(terminal: &mut DefaultTerminal) -> io::Result<()> {
     execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
     enhance_keyboard()?;
     terminal.clear()
+}
+
+/// Dropping crossterm's `EventStream` wakes its shared reader one last time, and that
+/// wake-up makes the next terminal query time out. One poll uses it up; call this after
+/// the stream is gone and before the terminal is set up again.
+pub fn discard_wakeup() {
+    if let Err(error) = event::poll(Duration::ZERO) {
+        tracing::debug!(?error, "Failed to discard the input wake-up");
+    }
 }
 
 fn enhance_keyboard() -> io::Result<()> {

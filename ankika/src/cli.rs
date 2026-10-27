@@ -9,6 +9,11 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
 
+    /// Profile to open; each has its own collection and AnkiWeb login. Defaults to the
+    /// one used last
+    #[arg(long, global = true, env = "ANKIKA_PROFILE", value_name = "NAME")]
+    pub profile: Option<String>,
+
     /// Directory holding the collection and its media
     #[arg(long, global = true, env = "ANKIKA_DATA_DIR", value_name = "DIR")]
     pub data_dir: Option<PathBuf>,
@@ -55,6 +60,26 @@ pub enum Command {
     Login(LoginArgs),
     /// Forget the stored login
     Logout,
+    /// List, add, rename or remove profiles
+    #[command(subcommand)]
+    Profile(ProfileCommand),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ProfileCommand {
+    /// List the profiles; the one used last is marked with *
+    List,
+    /// Add an empty profile
+    Add { name: String },
+    /// Rename a profile, keeping its collection and login
+    Rename { old: String, new: String },
+    /// Remove a profile with its collection, media and login
+    Remove {
+        name: String,
+        /// Don't ask for confirmation
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Debug, Args)]

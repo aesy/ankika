@@ -36,10 +36,10 @@ pub struct CollectionLock {
 
 impl CollectionLock {
     pub fn acquire(paths: &Paths) -> Result<Self, LockError> {
-        let directory = paths.data_dir();
+        let directory = paths.profile_data_dir();
 
-        fs::create_dir_all(directory).map_err(|source| LockError::CreateDirectory {
-            path: directory.to_path_buf(),
+        fs::create_dir_all(&directory).map_err(|source| LockError::CreateDirectory {
+            path: directory.clone(),
             source,
         })?;
 

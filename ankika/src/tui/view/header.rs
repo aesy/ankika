@@ -1,3 +1,4 @@
+use ankika_core::paths::DEFAULT_PROFILE;
 use ankika_core::review::Queue;
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -21,10 +22,15 @@ pub fn render(
     theme: Theme,
     hits: &mut HitMap,
 ) {
-    let title = Line::styled(
+    let mut title = Line::styled(
         " ankika",
         Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
     );
+
+    // The default profile goes unnamed, like before profiles existed
+    if state.profile() != DEFAULT_PROFILE {
+        title.push_span(Span::styled(format!(" · {}", state.profile()), theme.muted));
+    }
 
     let title_width = u16::try_from(title.width()).unwrap_or(u16::MAX);
     let status = state.review().map_or_else(

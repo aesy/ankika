@@ -4,6 +4,7 @@ mod command;
 mod config;
 mod i18n;
 mod logging;
+mod profile_prompt;
 mod tui;
 
 use std::error::Error;

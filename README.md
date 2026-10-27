@@ -32,6 +32,11 @@ cargo build --release
 
 `ankika login` and `ankika logout` manage the AnkiWeb login without opening the TUI.
 
+## Profiles
+
+Each profile has its own collection and AnkiWeb login. `--profile <NAME>` (or `ANKIKA_PROFILE`) picks one;
+otherwise ankika opens the one used last. `ankika profile list`, `add`, `rename` and `remove` manage them.
+
 ## Settings
 
 `config.toml` in the config directory holds ankika's own settings; the Settings screen (`,`) edits it and keeps

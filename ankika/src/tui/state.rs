@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use anki::collection::Collection;
 use anki::decks::DeckId;
 use ankika_core::adding;
@@ -9,6 +7,8 @@ use ankika_core::deck_options::{self, DeckOptions};
 use ankika_core::decks;
 use ankika_core::note_edit::NoteText;
 use ankika_core::overview::{self, OverviewError, Unbury};
+use ankika_core::paths::Paths;
+use ankika_core::profiles;
 use ankika_core::review::{self, Rating, ReviewError, Side, Sound, SoundRef, StudyCard};
 use ankika_core::session::Session;
 use ankika_core::stats;
@@ -35,7 +35,7 @@ use crate::tui::editor::EditorError;
 use crate::tui::error_text;
 use crate::tui::form::{self, Form};
 use crate::tui::full_sync_prompt::{Choice, FullSyncPrompt};
-use crate::tui::fuzzy_list::FuzzyList;
+use crate::tui::fuzzy_list::{Entry, FuzzyList};
 use crate::tui::hit_map::{Hit, HitMap};
 use crate::tui::keymap::{self, Context};
 use crate::tui::login_form::{Field, LoginForm};
@@ -67,6 +67,7 @@ pub enum Overlay {
         input: TagInput,
     },
     Settings(Form),
+    Profiles(FuzzyList<String>),
     /// Boxed, since the preset makes it much larger than the other overlays.
     DeckOptions(Box<DeckOptionsDialog>),
 }
@@ -112,7 +113,9 @@ pub struct State {
     audio: Audio,
     /// As in the file; command line overrides aren't saved into it.
     config: Config,
-    config_path: PathBuf,
+    paths: Paths,
+    /// The profile to open once quitting is done.
+    switch_profile: Option<String>,
     /// The sound the audio thread reports as playing.
     playing: Option<SoundRef>,
     decks: DeckList,
@@ -147,7 +150,7 @@ impl State {
         tasks: Tasks,
         audio: Audio,
         config: Config,
-        config_path: PathBuf,
+        paths: Paths,
     ) -> Self {
         Self {
             session,
@@ -155,7 +158,8 @@ impl State {
             tasks,
             audio,
             config,
-            config_path,
+            paths,
+            switch_profile: None,
             playing: None,
             decks: DeckList::default(),
             browser: None,
@@ -194,6 +198,46 @@ impl State {
 
     pub const fn config(&self) -> &Config {
         &self.config
+    }
+
+    pub fn profile(&self) -> &str {
+        self.paths.profile()
+    }
+
+    pub const fn take_switch_profile(&mut self) -> Option<String> {
+        self.switch_profile.take()
+    }
+
+    fn open_profile_picker(&mut self, i18n: &I18n) {
+        match profiles::list(&self.paths) {
+            Ok(names) => {
+                let entries = names
+                    .into_iter()
+                    .map(|name| Entry {
+                        label: name.clone(),
+                        value: name,
+                    })
+                    .collect();
+                let mut list = FuzzyList::new(entries);
+                list.select_where(|name| name == self.paths.profile());
+
+                self.overlay = Overlay::Profiles(list);
+            },
+            Err(error) => {
+                tracing::warn!(?error, "Failed to list the profiles");
+                self.notice = Some(i18n.text("error-profiles"));
+            },
+        }
+    }
+
+    /// Quits the usual way, syncing first if set, and opens the profile afterwards.
+    fn switch_to(&mut self, profile: String, i18n: &I18n) {
+        self.overlay = Overlay::None;
+
+        if profile != self.paths.profile() {
+            self.switch_profile = Some(profile);
+            self.quit(i18n);
+        }
     }
 
     pub const fn playing(&self) -> Option<SoundRef> {
@@ -261,7 +305,10 @@ impl State {
                 },
             },
             Overlay::Help => Context::Help,
-            Overlay::Palette(_) | Overlay::ChangeDeck(_) | Overlay::SortBy(_) => Context::Palette,
+            Overlay::Palette(_)
+            | Overlay::ChangeDeck(_)
+            | Overlay::SortBy(_)
+            | Overlay::Profiles(_) => Context::Palette,
             Overlay::Login(_) => Context::Login,
             Overlay::FullSync(_) => Context::FullSync,
             Overlay::Quit(_) => Context::Quit,
@@ -591,6 +638,11 @@ impl State {
             Overlay::ChangeDeck(_) | Overlay::SortBy(_) | Overlay::Tags { .. } => {
                 self.handle_browser_overlay_key(key.code, typed, i18n);
             },
+            Overlay::Profiles(list) => {
+                if list.handle_key(key.code, typed) {
+                    self.confirm_list(i18n);
+                }
+            },
             Overlay::Settings(_) | Overlay::DeckOptions(_) => {
                 if let Some(form) = self.overlay_form() {
                     let outcome = form.handle_key(key.code, typed);
@@ -874,7 +926,7 @@ impl State {
     fn save_settings(&mut self, mut form: Form, i18n: &I18n) {
         let config = settings_form::read(&form);
 
-        match config::save(&self.config_path, &config) {
+        match config::save(&self.paths.config_file(), &config) {
             Ok(()) => {
                 self.config = config;
                 self.notice = Some(i18n.text("settings-saved"));
@@ -913,6 +965,29 @@ impl State {
                 self.notice = Some(error_text::deck_options(&error, i18n));
             },
         }
+    }
+
+    fn perform_stats(&mut self, action: Action, i18n: &I18n) {
+        match action {
+            Action::OpenStats => self.stats_screen = Some(StatsScreen::new()),
+            Action::CloseStats => {
+                self.stats_screen = None;
+                return;
+            },
+            Action::ToggleStatsScope => {
+                if let Some(screen) = &mut self.stats_screen {
+                    screen.toggle_scope();
+                }
+            },
+            Action::NextPeriod | Action::PreviousPeriod => {
+                if let Some(screen) = &mut self.stats_screen {
+                    screen.shift_period(action == Action::NextPeriod);
+                }
+            },
+            _ => return,
+        }
+
+        self.load_stats(i18n);
     }
 
     /// Loads the statistics for the screen's scope and period, unless a sync has the
@@ -1256,6 +1331,7 @@ impl State {
             Overlay::Palette(list) => list.select(index),
             Overlay::ChangeDeck(list) => list.select(index),
             Overlay::SortBy(list) => list.select(index),
+            Overlay::Profiles(list) => list.select(index),
             Overlay::Add(form) => {
                 if let Some(picker) = form.picker_mut() {
                     picker.select(index);
@@ -1285,6 +1361,11 @@ impl State {
                 }
             },
             Overlay::Add(form) => form.confirm_picker(),
+            Overlay::Profiles(list) => {
+                if let Some(profile) = list.selected_value().cloned() {
+                    self.switch_to(profile, i18n);
+                }
+            },
             _ => {},
         }
     }
@@ -1556,7 +1637,7 @@ impl State {
             actions.push(Action::LogIn);
         }
 
-        actions.push(Action::Quit);
+        actions.extend([Action::OpenSettings, Action::SwitchProfile, Action::Quit]);
         actions
     }
 
@@ -1662,29 +1743,16 @@ impl State {
             Action::Card(action) => self.card_action(action, i18n),
             Action::EditNote => self.request_edit(i18n),
             Action::OpenBrowser => self.open_browser(i18n),
+            Action::SwitchProfile => self.open_profile_picker(i18n),
             Action::OpenSettings => {
                 self.overlay = Overlay::Settings(settings_form::new(&self.config, i18n));
             },
             Action::DeckOptions => self.open_deck_options(i18n),
-            Action::OpenStats => {
-                self.stats_screen = Some(StatsScreen::new());
-                self.load_stats(i18n);
-            },
-            Action::CloseStats => self.stats_screen = None,
-            Action::ToggleStatsScope => {
-                if let Some(screen) = &mut self.stats_screen {
-                    screen.toggle_scope();
-                }
-
-                self.load_stats(i18n);
-            },
-            Action::NextPeriod | Action::PreviousPeriod => {
-                if let Some(screen) = &mut self.stats_screen {
-                    screen.shift_period(action == Action::NextPeriod);
-                }
-
-                self.load_stats(i18n);
-            },
+            Action::OpenStats
+            | Action::CloseStats
+            | Action::ToggleStatsScope
+            | Action::NextPeriod
+            | Action::PreviousPeriod => self.perform_stats(action, i18n),
             // Rebuild and Empty are for filtered decks; the rest only work while the browser
             // is open, which handles them first
             Action::Rebuild

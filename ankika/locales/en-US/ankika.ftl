@@ -67,3 +67,6 @@ deck-options-fsrs = FSRS (whole collection)
 deck-options-preset-note = Changes apply to every deck that uses this preset.
 deck-options-invalid = Not saved: { $field } is not valid.
 deck-options-saved = Options saved.
+
+action-switch-profile = Switch Profile
+error-profiles = Could not list the profiles. See the log for details.
