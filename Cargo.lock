@@ -264,8 +264,11 @@ dependencies = [
  "ratatui-image",
  "rodio",
  "rpassword",
+ "serde",
  "thiserror 2.0.21",
  "tokio",
+ "toml",
+ "toml_edit",
  "tracing",
  "tracing-subscriber",
  "unic-langid",
@@ -5776,6 +5779,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 

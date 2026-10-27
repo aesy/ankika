@@ -18,6 +18,7 @@ pub enum Context {
     Browser,
     BrowserSearch,
     Stats,
+    Form,
     Overview,
     FilteredOverview,
     ReviewQuestion,
@@ -153,6 +154,7 @@ const MAIN: &[Binding] = &[
     Binding::key('a', Action::AddNote),
     Binding::key('b', Action::OpenBrowser),
     Binding::key('t', Action::OpenStats),
+    Binding::key(',', Action::OpenSettings),
     Binding::key('?', Action::ToggleHelp),
     Binding::key(':', Action::OpenPalette),
     Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
@@ -230,6 +232,8 @@ const OVERVIEW: &[Binding] = &[
     Binding::key('a', Action::AddNote),
     Binding::key('b', Action::OpenBrowser),
     Binding::key('t', Action::OpenStats),
+    Binding::key(',', Action::OpenSettings),
+    Binding::key('o', Action::DeckOptions),
     Binding::key('c', Action::CustomStudy),
     Binding::key('u', Action::Unbury),
     CLOSE_OVERVIEW,
@@ -247,6 +251,7 @@ const FILTERED_OVERVIEW: &[Binding] = &[
     Binding::key('a', Action::AddNote),
     Binding::key('b', Action::OpenBrowser),
     Binding::key('t', Action::OpenStats),
+    Binding::key(',', Action::OpenSettings),
     Binding::key('r', Action::Rebuild),
     Binding::key('e', Action::Empty),
     Binding::key('u', Action::Unbury),
@@ -333,7 +338,8 @@ const fn bindings(context: Context) -> &'static [Binding] {
         | Context::Quit
         | Context::Unbury
         | Context::CustomStudy
-        | Context::Add => OVERLAY,
+        | Context::Add
+        | Context::Form => OVERLAY,
         Context::Browser => BROWSER,
         Context::BrowserSearch => BROWSER_SEARCH,
         Context::Stats => STATS,
@@ -416,6 +422,7 @@ mod tests {
                 (Action::AddNote, vec!["a".to_owned()]),
                 (Action::OpenBrowser, vec!["b".to_owned()]),
                 (Action::OpenStats, vec!["t".to_owned()]),
+                (Action::OpenSettings, vec![",".to_owned()]),
                 (Action::ToggleHelp, vec!["?".to_owned()]),
                 (
                     Action::OpenPalette,

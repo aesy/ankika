@@ -1,6 +1,7 @@
 mod app;
 mod cli;
 mod command;
+mod config;
 mod i18n;
 mod logging;
 mod tui;

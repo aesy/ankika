@@ -6,8 +6,10 @@ mod card_text;
 mod choices;
 mod custom_study_form;
 mod deck_list;
+mod deck_options_form;
 mod editor;
 mod error_text;
+mod form;
 mod full_sync_prompt;
 mod fuzzy_list;
 mod hit_map;
@@ -18,6 +20,7 @@ mod overview;
 mod palette;
 mod quit_prompt;
 mod review;
+mod settings_form;
 mod state;
 mod stats_screen;
 mod tag_input;
@@ -39,6 +42,7 @@ use ratatui::DefaultTerminal;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 
 use crate::cli::ImageMode;
+use crate::config::Config;
 use crate::i18n::I18n;
 use crate::tui::audio::Audio;
 use crate::tui::hit_map::HitMap;
@@ -61,13 +65,21 @@ pub enum TuiError {
     LostCollection(CollectionError),
 }
 
+/// Command line flags and environment variables, which win over the config file.
+pub struct Overrides {
+    pub sync_server: Option<String>,
+    pub images: Option<ImageMode>,
+}
+
 pub async fn run(
     i18n: &I18n,
     paths: &Paths,
     collection: Collection,
-    sync_server: Option<String>,
-    image_mode: ImageMode,
+    config: Config,
+    overrides: Overrides,
 ) -> Result<(), TuiError> {
+    let sync_server = overrides.sync_server.or_else(|| config.sync_server.clone());
+    let image_mode = overrides.images.unwrap_or(config.images);
     let sessions = SessionStore::new(paths);
     let (sender, receiver) = mpsc::unbounded_channel();
     let (session, notice) = match sessions.load() {
@@ -79,14 +91,25 @@ pub async fn run(
     };
     let audio = Audio::start(paths.media_dir(), sender.clone());
     let tasks = Tasks::new(sender, sessions, sync_server);
-    let mut state = State::new(session, collection, tasks, audio);
+    let sync_on_start = config.sync_on_start;
+    let mut state = State::new(
+        session,
+        collection,
+        tasks,
+        audio,
+        config,
+        paths.config_file(),
+    );
 
     if let Some(notice) = notice {
         state.set_notice(notice);
     }
 
     state.reload_decks(i18n);
-    state.start_sync();
+
+    if sync_on_start {
+        state.start_sync();
+    }
 
     let mut terminal = terminal::init().map_err(TuiError::Init)?;
     let images = Images::detect(image_mode, paths.media_dir());
@@ -125,11 +148,12 @@ async fn event_loop(
     mut results: UnboundedReceiver<TaskResult>,
     i18n: &I18n,
 ) -> Result<(), TuiError> {
-    let theme = Theme::detect();
     let mut events = EventStream::new();
 
     while !state.should_quit() {
         let mut hits = HitMap::default();
+        // Read each frame, so saving the settings applies it right away
+        let theme = Theme::new(state.config().theme);
 
         state.load_browser_data();
         terminal

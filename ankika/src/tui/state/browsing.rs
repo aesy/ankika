@@ -172,20 +172,13 @@ impl State {
 
         match &mut self.overlay {
             Overlay::ChangeDeck(list) => {
-                if list.handle_key(key, typed)
-                    && let Some(&deck) = list.selected_value()
-                {
-                    self.move_to_deck(deck, i18n);
+                if list.handle_key(key, typed) {
+                    self.confirm_list(i18n);
                 }
             },
             Overlay::SortBy(list) => {
                 if list.handle_key(key, typed) {
-                    let column = list.selected_value().copied();
-                    self.overlay = Overlay::None;
-
-                    if let Some(column) = column {
-                        self.sort_by(column, i18n);
-                    }
+                    self.confirm_list(i18n);
                 }
             },
             Overlay::Tags { input, .. } => match key {

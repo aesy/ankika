@@ -3,6 +3,8 @@ use std::env;
 use ankika_core::card_actions::Flag;
 use ratatui::style::Color;
 
+use crate::config::ThemeName;
+
 #[derive(Debug, Clone, Copy)]
 pub struct Theme {
     pub background: Color,
@@ -18,7 +20,7 @@ pub struct Theme {
     pub filtered: Color,
 }
 
-const TRUE_COLOR: Theme = Theme {
+const DARK_TRUE_COLOR: Theme = Theme {
     background: Color::Rgb(24, 25, 33),
     surface: Color::Rgb(36, 38, 50),
     border: Color::Rgb(68, 71, 90),
@@ -33,7 +35,7 @@ const TRUE_COLOR: Theme = Theme {
 };
 
 /// Closest matches in the xterm 256-color palette.
-const INDEXED: Theme = Theme {
+const DARK_INDEXED: Theme = Theme {
     background: Color::Indexed(234),
     surface: Color::Indexed(236),
     border: Color::Indexed(239),
@@ -47,13 +49,48 @@ const INDEXED: Theme = Theme {
     filtered: Color::Indexed(177),
 };
 
+const LIGHT_TRUE_COLOR: Theme = Theme {
+    background: Color::Rgb(250, 250, 252),
+    surface: Color::Rgb(236, 238, 244),
+    border: Color::Rgb(200, 204, 216),
+    text: Color::Rgb(32, 34, 44),
+    muted: Color::Rgb(110, 115, 132),
+    accent: Color::Rgb(37, 99, 235),
+    error: Color::Rgb(200, 40, 50),
+    new_count: Color::Rgb(29, 78, 216),
+    learn_count: Color::Rgb(185, 28, 28),
+    review_count: Color::Rgb(21, 128, 61),
+    filtered: Color::Rgb(126, 34, 206),
+};
+
+/// Closest matches in the xterm 256-color palette.
+const LIGHT_INDEXED: Theme = Theme {
+    background: Color::Indexed(255),
+    surface: Color::Indexed(254),
+    border: Color::Indexed(250),
+    text: Color::Indexed(235),
+    muted: Color::Indexed(243),
+    accent: Color::Indexed(26),
+    error: Color::Indexed(160),
+    new_count: Color::Indexed(25),
+    learn_count: Color::Indexed(124),
+    review_count: Color::Indexed(28),
+    filtered: Color::Indexed(91),
+};
+
 impl Theme {
-    pub fn detect() -> Self {
+    /// The palette for the setting, in 24-bit color when the terminal says it has it.
+    pub fn new(name: ThemeName) -> Self {
         // `COLORTERM` is the de facto way terminals advertise 24-bit color
         let true_color =
             env::var("COLORTERM").is_ok_and(|value| value == "truecolor" || value == "24bit");
 
-        if true_color { TRUE_COLOR } else { INDEXED }
+        match (name, true_color) {
+            (ThemeName::Dark, true) => DARK_TRUE_COLOR,
+            (ThemeName::Dark, false) => DARK_INDEXED,
+            (ThemeName::Light, true) => LIGHT_TRUE_COLOR,
+            (ThemeName::Light, false) => LIGHT_INDEXED,
+        }
     }
 }
 

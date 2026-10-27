@@ -6,9 +6,10 @@ use ankika_core::session::SessionError;
 use crate::cli::{Cli, Command};
 use crate::command::login::LoginCommandError;
 use crate::command::{login, logout};
+use crate::config::{self, ConfigError};
 use crate::i18n::{I18n, I18nError};
 use crate::logging::{self, LoggingError};
-use crate::tui::{self, TuiError};
+use crate::tui::{self, Overrides, TuiError};
 
 const LOG_FILE_NAME: &str = "ankika.log";
 
@@ -26,6 +27,8 @@ pub enum AppError {
     I18n(#[from] I18nError),
     #[error(transparent)]
     Tui(#[from] TuiError),
+    #[error(transparent)]
+    Config(#[from] ConfigError),
     #[error(transparent)]
     Login(#[from] LoginCommandError),
     #[error(transparent)]
@@ -46,14 +49,23 @@ pub async fn run(cli: Cli) -> Result<(), AppError> {
         "Starting ankika"
     );
 
+    let config = config::load(&paths.config_file())?;
+
     match cli.command {
         None => {
             let _lock = CollectionLock::acquire(&paths)?;
             let i18n = I18n::new()?;
             let collection = collection::open(&paths, i18n.anki().clone())?;
-            tui::run(&i18n, &paths, collection, cli.sync_server, cli.images).await?;
+            let overrides = Overrides {
+                sync_server: cli.sync_server,
+                images: cli.images,
+            };
+
+            tui::run(&i18n, &paths, collection, config, overrides).await?;
         },
-        Some(Command::Login(args)) => login::run(&paths, args, cli.sync_server).await?,
+        Some(Command::Login(args)) => {
+            login::run(&paths, args, cli.sync_server.or(config.sync_server)).await?;
+        },
         Some(Command::Logout) => logout::run(&paths)?,
     }
 

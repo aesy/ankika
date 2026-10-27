@@ -26,8 +26,11 @@ ratatui = { workspace = true }
 ratatui-image = { workspace = true }
 rodio = { workspace = true }
 rpassword = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
+toml = { workspace = true }
+toml_edit = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 unic-langid = { workspace = true, features = ["macros"] }

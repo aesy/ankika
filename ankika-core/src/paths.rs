@@ -68,6 +68,12 @@ impl Paths {
         self.data.join("ankika.lock")
     }
 
+    /// ankika's own settings; Anki's live in the collection.
+    #[must_use]
+    pub fn config_file(&self) -> PathBuf {
+        self.config.join("config.toml")
+    }
+
     #[must_use]
     pub fn account_file(&self) -> PathBuf {
         self.config.join("account.toml")

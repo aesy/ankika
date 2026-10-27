@@ -380,6 +380,7 @@ impl TextDecorator for CardDecorator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::ThemeName;
 
     fn no_sounds() -> Sounds {
         Sounds {
@@ -410,7 +411,11 @@ mod tests {
 
     #[test]
     fn renders_line_breaks_and_bold() {
-        let lines = lines(render("<b>front</b><br>back", 40, Theme::detect()));
+        let lines = lines(render(
+            "<b>front</b><br>back",
+            40,
+            Theme::new(ThemeName::Dark),
+        ));
 
         assert_eq!(text(&lines), vec!["front", "back"]);
         assert!(
@@ -423,7 +428,11 @@ mod tests {
 
     #[test]
     fn draws_rules() {
-        let lines = lines(render("front<hr id=answer>back", 10, Theme::detect()));
+        let lines = lines(render(
+            "front<hr id=answer>back",
+            10,
+            Theme::new(ThemeName::Dark),
+        ));
 
         assert_eq!(text(&lines), vec!["front", &"─".repeat(10), "back"]);
     }
@@ -433,7 +442,7 @@ mod tests {
         let lines = lines(render(
             r#"<span style="color: #ff8800">a</span> <font color="red">b</font>"#,
             40,
-            Theme::detect(),
+            Theme::new(ThemeName::Dark),
         ));
         let colors: Vec<_> = lines[0]
             .spans
@@ -449,7 +458,7 @@ mod tests {
         let lines = lines(render(
             "<code id=typeans><span class=typeGood>a</span><span class=typeBad>b</span></code>",
             40,
-            Theme::detect(),
+            Theme::new(ThemeName::Dark),
         ));
         let colors: Vec<_> = lines[0]
             .spans
@@ -476,7 +485,7 @@ mod tests {
         let blocks = super::render(
             "Hi [anki:play:q:0]",
             40,
-            Theme::detect(),
+            Theme::new(ThemeName::Dark),
             &sounds,
             Some(playing),
         );
@@ -500,7 +509,7 @@ mod tests {
         let blocks = render(
             r#"Cat: <img src="cat.jpg"><br><img src="dog.png">"#,
             40,
-            Theme::detect(),
+            Theme::new(ThemeName::Dark),
         );
 
         assert_eq!(
@@ -521,7 +530,7 @@ mod tests {
         let lines = lines(render(
             r#"a <span class="cloze">[...]</span>"#,
             40,
-            Theme::detect(),
+            Theme::new(ThemeName::Dark),
         ));
         let cloze = lines[0].spans.iter().find(|span| span.content == "[...]");
 

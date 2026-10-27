@@ -1,8 +1,11 @@
+use std::path::PathBuf;
+
 use anki::collection::Collection;
 use anki::decks::DeckId;
 use ankika_core::adding;
 use ankika_core::card_actions::{self, CardAction, Flag, Outcome};
 use ankika_core::collection::CollectionError;
+use ankika_core::deck_options::{self, DeckOptions};
 use ankika_core::decks;
 use ankika_core::note_edit::NoteText;
 use ankika_core::overview::{self, OverviewError, Unbury};
@@ -18,6 +21,7 @@ use crossterm::event::{
 use futures_util::future::AbortHandle;
 use ratatui::layout::Position;
 
+use crate::config::{self, Config};
 use crate::i18n::I18n;
 use crate::tui::action::Action;
 use crate::tui::add_form::{self, AddForm};
@@ -26,8 +30,10 @@ use crate::tui::browser::{Browser, Focus};
 use crate::tui::choices::Choices;
 use crate::tui::custom_study_form::{self, CustomStudyForm};
 use crate::tui::deck_list::DeckList;
+use crate::tui::deck_options_form;
 use crate::tui::editor::EditorError;
 use crate::tui::error_text;
+use crate::tui::form::{self, Form};
 use crate::tui::full_sync_prompt::{Choice, FullSyncPrompt};
 use crate::tui::fuzzy_list::FuzzyList;
 use crate::tui::hit_map::{Hit, HitMap};
@@ -37,6 +43,7 @@ use crate::tui::overview::DeckScreen;
 use crate::tui::palette::{self, Palette};
 use crate::tui::quit_prompt::{self, QuitChoice};
 use crate::tui::review::{Review, Stage};
+use crate::tui::settings_form;
 use crate::tui::stats_screen::StatsScreen;
 use crate::tui::tag_input::TagInput;
 use crate::tui::tasks::{TaskResult, Tasks};
@@ -59,6 +66,21 @@ pub enum Overlay {
         remove: bool,
         input: TagInput,
     },
+    Settings(Form),
+    /// Boxed, since the preset makes it much larger than the other overlays.
+    DeckOptions(Box<DeckOptionsDialog>),
+}
+
+pub struct DeckOptionsDialog {
+    form: Form,
+    deck: DeckId,
+    options: DeckOptions,
+}
+
+impl DeckOptionsDialog {
+    pub const fn form(&self) -> &Form {
+        &self.form
+    }
 }
 
 /// A note for the editor, and what to do with it afterwards.
@@ -88,6 +110,9 @@ pub struct State {
     collection: Option<Collection>,
     tasks: Tasks,
     audio: Audio,
+    /// As in the file; command line overrides aren't saved into it.
+    config: Config,
+    config_path: PathBuf,
     /// The sound the audio thread reports as playing.
     playing: Option<SoundRef>,
     decks: DeckList,
@@ -121,12 +146,16 @@ impl State {
         collection: Collection,
         tasks: Tasks,
         audio: Audio,
+        config: Config,
+        config_path: PathBuf,
     ) -> Self {
         Self {
             session,
             collection: Some(collection),
             tasks,
             audio,
+            config,
+            config_path,
             playing: None,
             decks: DeckList::default(),
             browser: None,
@@ -161,6 +190,10 @@ impl State {
 
     pub const fn decks(&self) -> &DeckList {
         &self.decks
+    }
+
+    pub const fn config(&self) -> &Config {
+        &self.config
     }
 
     pub const fn playing(&self) -> Option<SoundRef> {
@@ -235,6 +268,7 @@ impl State {
             Overlay::Unbury(_) => Context::Unbury,
             Overlay::CustomStudy(_) => Context::CustomStudy,
             Overlay::Add(_) | Overlay::Tags { .. } => Context::Add,
+            Overlay::Settings(_) | Overlay::DeckOptions(_) => Context::Form,
         }
     }
 
@@ -518,24 +552,10 @@ impl State {
         match &mut self.overlay {
             Overlay::Palette(palette) => {
                 if palette.handle_key(key.code, typed) {
-                    self.run_palette_selection(i18n);
+                    self.confirm_list(i18n);
                 }
             },
-            Overlay::Login(form) => match key.code {
-                KeyCode::Up | KeyCode::BackTab => form.focus_previous(),
-                KeyCode::Down | KeyCode::Tab => form.focus_next(),
-                KeyCode::Backspace => form.pop(),
-                KeyCode::Enter => match form.focus() {
-                    Field::Email => form.set_focus(Field::Password),
-                    Field::Password | Field::Submit => self.submit_login(),
-                    Field::Cancel => self.overlay = Overlay::None,
-                },
-                _ => {
-                    if let Some(character) = typed {
-                        form.push(character);
-                    }
-                },
-            },
+            Overlay::Login(_) => self.handle_login_key(key.code, typed),
             Overlay::FullSync(prompt) => {
                 if let Some(choice) = navigate(prompt.choices_mut(), key.code) {
                     self.choose_full_sync(choice);
@@ -570,6 +590,12 @@ impl State {
             Overlay::Add(_) => self.handle_add_key(key.code, typed, i18n),
             Overlay::ChangeDeck(_) | Overlay::SortBy(_) | Overlay::Tags { .. } => {
                 self.handle_browser_overlay_key(key.code, typed, i18n);
+            },
+            Overlay::Settings(_) | Overlay::DeckOptions(_) => {
+                if let Some(form) = self.overlay_form() {
+                    let outcome = form.handle_key(key.code, typed);
+                    self.finish_form(outcome, i18n);
+                }
             },
             Overlay::None if self.browser.is_some() => self.handle_browser_key(key.code, typed),
             Overlay::None if self.stats_screen.is_some() => {
@@ -664,35 +690,7 @@ impl State {
     fn click(&mut self, hit: Option<Hit>, i18n: &I18n) {
         match hit {
             Some(Hit::Action(action)) => self.perform(action, i18n),
-            Some(Hit::ListEntry(index)) => {
-                if let Overlay::ChangeDeck(list) = &mut self.overlay {
-                    list.select(index);
-
-                    if let Some(&deck) = list.selected_value() {
-                        self.move_to_deck(deck, i18n);
-                    }
-                } else if let Overlay::SortBy(list) = &mut self.overlay {
-                    list.select(index);
-                    let column = list.selected_value().copied();
-                    self.overlay = Overlay::None;
-
-                    if let Some(column) = column {
-                        self.sort_by(column, i18n);
-                    }
-                } else if let Overlay::Add(form) = &mut self.overlay {
-                    if let Some(picker) = form.picker_mut() {
-                        picker.select(index);
-                    }
-
-                    form.confirm_picker();
-                } else {
-                    if let Overlay::Palette(palette) = &mut self.overlay {
-                        palette.select(index);
-                    }
-
-                    self.run_palette_selection(i18n);
-                }
-            },
+            Some(Hit::ListEntry(index)) => self.click_list_entry(index, i18n),
             Some(Hit::AddField(field)) => self.click_add_field(field, i18n),
             Some(Hit::BrowserRow(index)) => {
                 if let Some(browser) = &mut self.browser {
@@ -701,6 +699,12 @@ impl State {
                 }
             },
             Some(Hit::BrowserColumn(column)) => self.sort_by(column, i18n),
+            Some(Hit::Form(focus)) => {
+                if let Some(form) = self.overlay_form() {
+                    let outcome = form.click(focus);
+                    self.finish_form(outcome, i18n);
+                }
+            },
             Some(Hit::BrowserSearch) => {
                 if let Some(browser) = &mut self.browser {
                     browser.focus_search();
@@ -815,6 +819,100 @@ impl State {
     fn show_deck(&mut self, deck: DeckId, name: String, i18n: &I18n) {
         self.deck_screen = Some(DeckScreen::Waiting { deck, name });
         self.refresh_deck_screen(i18n);
+    }
+
+    fn open_deck_options(&mut self, i18n: &I18n) {
+        let (Some(screen), Some(collection)) = (&self.deck_screen, &mut self.collection) else {
+            return;
+        };
+
+        if screen.is_filtered() {
+            return;
+        }
+
+        let deck = screen.deck();
+
+        match deck_options::load(collection, deck) {
+            Ok(options) => {
+                let form = deck_options_form::new(screen.name(), &options, i18n);
+
+                self.overlay = Overlay::DeckOptions(Box::new(DeckOptionsDialog {
+                    form,
+                    deck,
+                    options,
+                }));
+            },
+            Err(error) => {
+                tracing::warn!(?error, "Failed to load the deck options");
+                self.notice = Some(error_text::deck_options(&error, i18n));
+            },
+        }
+    }
+
+    /// The settings or deck options form, when one is open.
+    const fn overlay_form(&mut self) -> Option<&mut Form> {
+        match &mut self.overlay {
+            Overlay::Settings(form) => Some(form),
+            Overlay::DeckOptions(dialog) => Some(&mut dialog.form),
+            _ => None,
+        }
+    }
+
+    /// Saves or closes the settings or deck options form after a key or click.
+    fn finish_form(&mut self, outcome: form::Outcome, i18n: &I18n) {
+        match outcome {
+            form::Outcome::Nothing => {},
+            form::Outcome::Cancel => self.overlay = Overlay::None,
+            form::Outcome::Save => match std::mem::replace(&mut self.overlay, Overlay::None) {
+                Overlay::Settings(form) => self.save_settings(form, i18n),
+                Overlay::DeckOptions(dialog) => self.save_deck_options(*dialog, i18n),
+                other => self.overlay = other,
+            },
+        }
+    }
+
+    fn save_settings(&mut self, mut form: Form, i18n: &I18n) {
+        let config = settings_form::read(&form);
+
+        match config::save(&self.config_path, &config) {
+            Ok(()) => {
+                self.config = config;
+                self.notice = Some(i18n.text("settings-saved"));
+            },
+            Err(error) => {
+                tracing::warn!(?error, "Failed to save the settings");
+                form.set_error(i18n.text("error-settings-save"));
+                self.overlay = Overlay::Settings(form);
+            },
+        }
+    }
+
+    fn save_deck_options(&mut self, mut dialog: DeckOptionsDialog, i18n: &I18n) {
+        if let Err(field) = deck_options_form::apply(&dialog.form, &mut dialog.options) {
+            dialog
+                .form
+                .set_error(i18n.text_with("deck-options-invalid", &[("field", &field)]));
+            self.overlay = Overlay::DeckOptions(Box::new(dialog));
+            return;
+        }
+
+        let DeckOptionsDialog { deck, options, .. } = dialog;
+
+        let Some(collection) = &mut self.collection else {
+            return;
+        };
+
+        match deck_options::save(collection, deck, options) {
+            Ok(()) => {
+                self.notice = Some(i18n.text("deck-options-saved"));
+                self.reload_decks(i18n);
+                self.refresh_deck_screen(i18n);
+            },
+            Err(error) => {
+                tracing::warn!(?error, "Failed to save the deck options");
+                self.notice = Some(error_text::deck_options(&error, i18n));
+            },
+        }
     }
 
     /// Loads the statistics for the screen's scope and period, unless a sync has the
@@ -1152,6 +1250,67 @@ impl State {
         }
     }
 
+    /// Selects the entry of the open list and acts on it, like Enter does.
+    fn click_list_entry(&mut self, index: usize, i18n: &I18n) {
+        match &mut self.overlay {
+            Overlay::Palette(list) => list.select(index),
+            Overlay::ChangeDeck(list) => list.select(index),
+            Overlay::SortBy(list) => list.select(index),
+            Overlay::Add(form) => {
+                if let Some(picker) = form.picker_mut() {
+                    picker.select(index);
+                }
+            },
+            _ => return,
+        }
+
+        self.confirm_list(i18n);
+    }
+
+    /// What Enter does in the open list.
+    pub(super) fn confirm_list(&mut self, i18n: &I18n) {
+        match &mut self.overlay {
+            Overlay::Palette(_) => self.run_palette_selection(i18n),
+            Overlay::ChangeDeck(list) => {
+                if let Some(&deck) = list.selected_value() {
+                    self.move_to_deck(deck, i18n);
+                }
+            },
+            Overlay::SortBy(list) => {
+                let column = list.selected_value().copied();
+                self.overlay = Overlay::None;
+
+                if let Some(column) = column {
+                    self.sort_by(column, i18n);
+                }
+            },
+            Overlay::Add(form) => form.confirm_picker(),
+            _ => {},
+        }
+    }
+
+    fn handle_login_key(&mut self, code: KeyCode, typed: Option<char>) {
+        let Overlay::Login(form) = &mut self.overlay else {
+            return;
+        };
+
+        match code {
+            KeyCode::Up | KeyCode::BackTab => form.focus_previous(),
+            KeyCode::Down | KeyCode::Tab => form.focus_next(),
+            KeyCode::Backspace => form.pop(),
+            KeyCode::Enter => match form.focus() {
+                Field::Email => form.set_focus(Field::Password),
+                Field::Password | Field::Submit => self.submit_login(),
+                Field::Cancel => self.overlay = Overlay::None,
+            },
+            _ => {
+                if let Some(character) = typed {
+                    form.push(character);
+                }
+            },
+        }
+    }
+
     fn click_add_field(&mut self, field: add_form::Field, i18n: &I18n) {
         let Overlay::Add(form) = &mut self.overlay else {
             return;
@@ -1412,9 +1571,10 @@ impl State {
         }
     }
 
-    /// Syncs once more, then quits when every sync is done.
+    /// Syncs once more unless the settings say not to, then quits when every sync is done.
     fn begin_quit(&mut self, i18n: &I18n) {
-        let can_sync = self.session.is_some() && self.collection.is_some();
+        let can_sync =
+            self.config.sync_on_quit && self.session.is_some() && self.collection.is_some();
         let syncing = self.sync == SyncStatus::Syncing;
 
         if !(can_sync || syncing || self.media_sync.is_some()) {
@@ -1502,6 +1662,10 @@ impl State {
             Action::Card(action) => self.card_action(action, i18n),
             Action::EditNote => self.request_edit(i18n),
             Action::OpenBrowser => self.open_browser(i18n),
+            Action::OpenSettings => {
+                self.overlay = Overlay::Settings(settings_form::new(&self.config, i18n));
+            },
+            Action::DeckOptions => self.open_deck_options(i18n),
             Action::OpenStats => {
                 self.stats_screen = Some(StatsScreen::new());
                 self.load_stats(i18n);

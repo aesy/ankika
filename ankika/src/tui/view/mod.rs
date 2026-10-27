@@ -4,6 +4,7 @@ mod buttons;
 mod chart;
 mod custom_study;
 mod footer;
+mod form;
 mod full_sync;
 mod fuzzy_list;
 mod header;
@@ -153,6 +154,12 @@ fn render_overlay(
         },
         Overlay::Tags { remove, input } => {
             tags::render(frame, area, *remove, input, i18n, theme, hits);
+        },
+        Overlay::Settings(settings) => {
+            form::render(frame, area, settings, state.mouse(), i18n, theme, hits);
+        },
+        Overlay::DeckOptions(dialog) => {
+            form::render(frame, area, dialog.form(), state.mouse(), i18n, theme, hits);
         },
     }
 }

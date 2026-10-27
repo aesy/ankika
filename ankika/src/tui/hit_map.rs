@@ -6,6 +6,7 @@ use ratatui::layout::{Position, Rect};
 use crate::tui::action::Action;
 use crate::tui::add_form;
 use crate::tui::custom_study_form;
+use crate::tui::form;
 use crate::tui::full_sync_prompt::Choice;
 use crate::tui::login_form::Field;
 use crate::tui::quit_prompt::QuitChoice;
@@ -29,6 +30,7 @@ pub enum Hit {
     BrowserRow(usize),
     BrowserColumn(usize),
     BrowserSearch,
+    Form(form::Focus),
     Deck(DeckId),
     Sound(SoundRef),
     /// The expand or collapse arrow in front of a deck.
