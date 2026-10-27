@@ -42,14 +42,8 @@ pub fn choices(collection: &mut Collection, home_deck: DeckId) -> Result<AddChoi
         .iter()
         .map(|notetype| (notetype.id, notetype.name.clone()))
         .collect();
-    let decks = collection.get_all_normal_deck_names(false).map_err(error)?;
-    let tags = collection
-        .storage
-        .all_tags()
-        .map_err(error)?
-        .into_iter()
-        .map(|tag| tag.name)
-        .collect();
+    let decks = normal_decks(collection)?;
+    let tags = all_tags(collection)?;
 
     Ok(AddChoices {
         notetypes,
@@ -58,4 +52,19 @@ pub fn choices(collection: &mut Collection, home_deck: DeckId) -> Result<AddChoi
         notetype: defaults.notetype_id,
         deck: defaults.deck_id,
     })
+}
+
+/// Normal decks only, since filtered decks can't take notes or moved cards.
+pub fn normal_decks(collection: &mut Collection) -> Result<Vec<(DeckId, String)>, AddingError> {
+    collection
+        .get_all_normal_deck_names(false)
+        .map_err(|source| AddingError { source })
+}
+
+pub fn all_tags(collection: &Collection) -> Result<Vec<String>, AddingError> {
+    collection
+        .storage
+        .all_tags()
+        .map(|tags| tags.into_iter().map(|tag| tag.name).collect())
+        .map_err(|source| AddingError { source })
 }

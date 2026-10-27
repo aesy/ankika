@@ -3,9 +3,7 @@ use anki::notetype::NotetypeId;
 use ankika_core::adding::AddChoices;
 
 use crate::tui::fuzzy_list::{Entry, FuzzyList};
-
-/// How many tag suggestions show under the input.
-const MAX_COMPLETIONS: usize = 5;
+use crate::tui::tag_input::TagInput;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
@@ -39,24 +37,22 @@ pub struct AddForm {
     choices: AddChoices,
     notetype: NotetypeId,
     deck: DeckId,
-    tags: String,
+    tags: TagInput,
     focus: Field,
     picker: Option<Picker>,
-    completions: Vec<String>,
-    completion: usize,
 }
 
 impl AddForm {
-    pub const fn new(choices: AddChoices) -> Self {
+    pub fn new(mut choices: AddChoices) -> Self {
+        let known = std::mem::take(&mut choices.tags);
+
         Self {
             notetype: choices.notetype,
             deck: choices.deck,
             choices,
-            tags: String::new(),
+            tags: TagInput::new(known),
             focus: Field::Notetype,
             picker: None,
-            completions: Vec::new(),
-            completion: 0,
         }
     }
 
@@ -76,12 +72,12 @@ impl AddForm {
         name(&self.choices.decks, self.deck)
     }
 
-    pub fn tags(&self) -> &str {
+    pub const fn tags(&self) -> &TagInput {
         &self.tags
     }
 
-    pub fn tag_list(&self) -> Vec<String> {
-        self.tags.split_whitespace().map(str::to_owned).collect()
+    pub const fn tags_mut(&mut self) -> &mut TagInput {
+        &mut self.tags
     }
 
     pub const fn focus(&self) -> Field {
@@ -98,14 +94,6 @@ impl AddForm {
 
     pub const fn picker_mut(&mut self) -> Option<&mut Picker> {
         self.picker.as_mut()
-    }
-
-    pub fn completions(&self) -> &[String] {
-        &self.completions
-    }
-
-    pub const fn completion(&self) -> usize {
-        self.completion
     }
 
     pub fn focus_next(&mut self) {
@@ -155,69 +143,13 @@ impl AddForm {
     pub fn push(&mut self, character: char) {
         if self.focus == Field::Tags {
             self.tags.push(character);
-            self.update_completions();
         }
     }
 
     pub fn pop(&mut self) {
         if self.focus == Field::Tags {
             self.tags.pop();
-            self.update_completions();
         }
-    }
-
-    pub const fn select_completion(&mut self, index: usize) {
-        if index < self.completions.len() {
-            self.completion = index;
-        }
-    }
-
-    pub const fn previous_completion(&mut self) {
-        self.completion = self.completion.saturating_sub(1);
-    }
-
-    pub const fn next_completion(&mut self) {
-        self.select_completion(self.completion.saturating_add(1));
-    }
-
-    /// Replaces the word being typed with the selected suggestion. Returns whether there
-    /// was one.
-    pub fn complete(&mut self) -> bool {
-        let Some(tag) = self.completions.get(self.completion).cloned() else {
-            return false;
-        };
-        let start = self
-            .tags
-            .rfind(char::is_whitespace)
-            .map_or(0, |index| index + 1);
-
-        self.tags.truncate(start);
-        self.tags.push_str(&tag);
-        self.tags.push(' ');
-        self.update_completions();
-
-        true
-    }
-
-    /// Tags starting with the word being typed, ignoring case and the tags already there.
-    fn update_completions(&mut self) {
-        let typing = !self.tags.ends_with(char::is_whitespace);
-        let mut words: Vec<&str> = self.tags.split_whitespace().collect();
-        let word = if typing { words.pop() } else { None };
-
-        self.completions = word.map_or_else(Vec::new, |word| {
-            let word = word.to_lowercase();
-
-            self.choices
-                .tags
-                .iter()
-                .filter(|tag| tag.to_lowercase().starts_with(&word))
-                .filter(|tag| !words.iter().any(|done| done.eq_ignore_ascii_case(tag)))
-                .take(MAX_COMPLETIONS)
-                .cloned()
-                .collect()
-        });
-        self.completion = 0;
     }
 
     fn index(&self) -> usize {
@@ -260,32 +192,6 @@ mod tests {
             notetype: NotetypeId(2),
             deck: DeckId(1),
         })
-    }
-
-    fn type_text(form: &mut AddForm, text: &str) {
-        form.set_focus(Field::Tags);
-        text.chars().for_each(|character| form.push(character));
-    }
-
-    #[test]
-    fn completes_the_word_being_typed() {
-        let mut form = form();
-        type_text(&mut form, "nouns v");
-
-        assert_eq!(form.completions(), ["verbs", "Vocab"]);
-
-        form.next_completion();
-        assert!(form.complete());
-        assert_eq!(form.tags(), "nouns Vocab ");
-        assert_eq!(form.completions(), &[] as &[String]);
-    }
-
-    #[test]
-    fn skips_tags_already_typed() {
-        let mut form = form();
-        type_text(&mut form, "verbs v");
-
-        assert_eq!(form.completions(), ["Vocab"]);
     }
 
     #[test]

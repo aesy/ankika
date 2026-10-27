@@ -1,6 +1,7 @@
 mod action;
 mod add_form;
 mod audio;
+mod browser;
 mod card_text;
 mod choices;
 mod custom_study_form;
@@ -18,6 +19,7 @@ mod palette;
 mod quit_prompt;
 mod review;
 mod state;
+mod tag_input;
 mod tasks;
 mod terminal;
 mod theme;
@@ -128,6 +130,7 @@ async fn event_loop(
     while !state.should_quit() {
         let mut hits = HitMap::default();
 
+        state.load_browser_data();
         terminal
             .draw(|frame| hits = view::render(frame, state, images, i18n, theme))
             .map_err(TuiError::Draw)?;

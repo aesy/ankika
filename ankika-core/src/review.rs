@@ -258,25 +258,17 @@ pub fn next_card(collection: &mut Collection, tr: &I18n) -> Result<Option<NextCa
         return Ok(None);
     };
     let card = &queued_card.card;
-    // Partial, so that FrontSide gets the question after its sounds became references,
-    // which keeps them out of the answer's own sounds like in Anki
-    let rendered = collection
-        .render_existing_card(card.id(), false, true)
-        .map_err(|source| ReviewError::Render { source })?;
-    let question = extract_sounds(collection, &join_nodes(&rendered.qnodes, None), true)?;
-    let answer = extract_sounds(
-        collection,
-        &join_nodes(&rendered.anodes, Some(&question.text)),
-        false,
-    )?;
+    let RenderedCard {
+        question,
+        answer,
+        sounds,
+    } = render_card(collection, card.id())?;
     let config = deck_config(collection, card.deck_id())?;
     let sounds = Sounds {
-        question: question.sounds,
-        answer: answer.sounds,
         autoplay: !config.inner.disable_autoplay,
         replay_question: !config.inner.skip_question_when_replaying_answer,
+        ..sounds
     };
-    let (question, answer) = (question.text, answer.text);
     let marks = card_actions::marks(collection, card.id()).map_err(ReviewError::LoadMarks)?;
     let type_answer = type_field(&question)
         .map(|field| load_type_answer(collection, card.note_id(), card.template_idx(), field))
@@ -406,6 +398,46 @@ pub fn studied_today(collection: &mut Collection) -> Result<String, ReviewError>
 
     // Anki's message puts its parts on separate lines and relies on HTML to join them
     Ok(text.split_whitespace().collect::<Vec<_>>().join(" "))
+}
+
+/// Both sides of a card as HTML, with sounds as references, like Anki's reviewer shows
+/// them before any type-in handling.
+pub struct RenderedCard {
+    pub question: String,
+    pub answer: String,
+    /// Without autoplay or replaying the question, which depend on the caller.
+    pub sounds: Sounds,
+}
+
+/// Rendered partially, so that `FrontSide` gets the question after its sounds became
+/// references, which keeps them out of the answer's own sounds like in Anki.
+pub fn render_card(collection: &mut Collection, card: CardId) -> Result<RenderedCard, ReviewError> {
+    let rendered = collection
+        .render_existing_card(card, false, true)
+        .map_err(|source| ReviewError::Render { source })?;
+    let question = extract_sounds(collection, &join_nodes(&rendered.qnodes, None), true)?;
+    let answer = extract_sounds(
+        collection,
+        &join_nodes(&rendered.anodes, Some(&question.text)),
+        false,
+    )?;
+
+    Ok(RenderedCard {
+        question: question.text,
+        answer: answer.text,
+        sounds: Sounds {
+            question: question.sounds,
+            answer: answer.sounds,
+            autoplay: false,
+            replay_question: false,
+        },
+    })
+}
+
+/// Removes `{{type:...}}` placeholders, for showing a card without an input.
+#[must_use]
+pub fn without_type_fields(html: &str) -> String {
+    replace_type_pattern(html, "")
 }
 
 struct Extracted {

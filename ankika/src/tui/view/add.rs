@@ -11,6 +11,7 @@ use crate::tui::state::State;
 use crate::tui::theme::Theme;
 use crate::tui::view::buttons::{self, Button};
 use crate::tui::view::fuzzy_list::{self, Labels};
+use crate::tui::view::tag_input;
 
 const WIDTH: u16 = 64;
 const LABEL_WIDTH: u16 = 12;
@@ -27,7 +28,7 @@ pub fn render(
     hits: &mut HitMap,
 ) {
     let tr = i18n.anki();
-    let completions = u16::try_from(form.completions().len()).unwrap_or(0);
+    let completions = u16::try_from(form.tags().completions().len()).unwrap_or(0);
     let popup = area.centered(
         Constraint::Length(WIDTH),
         Constraint::Length(FIXED_HEIGHT.saturating_add(completions)),
@@ -77,12 +78,19 @@ pub fn render(
         frame,
         tags_area,
         &tr.editing_tags(),
-        &format!("{}{cursor}", form.tags()),
+        &format!("{}{cursor}", form.tags().text()),
         focused(Field::Tags),
         theme,
     );
     hits.register(tags_area, Hit::AddField(Field::Tags));
-    render_completions(frame, completion_area, form, theme, hits);
+    tag_input::render_completions(
+        frame,
+        completion_area,
+        form.tags(),
+        LABEL_WIDTH,
+        theme,
+        hits,
+    );
 
     let row: Vec<Button> = [
         (Field::Add, tr.actions_add()),
@@ -135,27 +143,4 @@ fn render_row(
         Line::from(vec![Span::raw(format!(" {value}"))]).style(style),
         value_area,
     );
-}
-
-fn render_completions(
-    frame: &mut Frame<'_>,
-    area: Rect,
-    form: &AddForm,
-    theme: Theme,
-    hits: &mut HitMap,
-) {
-    let rows = Layout::vertical(vec![Constraint::Length(1); form.completions().len()]).split(area);
-
-    for (index, (tag, &row)) in form.completions().iter().zip(rows.iter()).enumerate() {
-        let [_, tag_area] =
-            Layout::horizontal([Constraint::Length(LABEL_WIDTH), Constraint::Fill(1)]).areas(row);
-        let style = if index == form.completion() {
-            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
-        } else {
-            Style::new().fg(theme.muted)
-        };
-
-        frame.render_widget(Line::styled(format!("  {tag}"), style), tag_area);
-        hits.register(tag_area, Hit::TagCompletion(index));
-    }
 }

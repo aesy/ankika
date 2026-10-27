@@ -25,6 +25,20 @@ pub enum Action {
     Card(CardAction),
     EditNote,
     AddNote,
+    OpenBrowser,
+    CloseBrowser,
+    FocusSearch,
+    RunSearch,
+    LeaveSearch,
+    ToggleNotesMode,
+    TogglePreview,
+    ToggleSelected,
+    SelectAll,
+    ToggleSuspend,
+    ChangeDeck,
+    AddTags,
+    RemoveTags,
+    SortBy,
     CloseReview,
     Quit,
 }
@@ -34,7 +48,7 @@ impl Action {
         match self {
             Self::ToggleHelp => i18n.anki().actions_help().into_owned(),
             Self::OpenPalette => i18n.text("action-commands"),
-            Self::CloseOverlay => i18n.anki().actions_close().into_owned(),
+            Self::CloseOverlay | Self::CloseBrowser => i18n.anki().actions_close().into_owned(),
             Self::LogIn => i18n.anki().sync_log_in_button().into_owned(),
             Self::LogOut => i18n.anki().sync_log_out_button().into_owned(),
             Self::Sync => i18n.text("action-sync"),
@@ -55,7 +69,21 @@ impl Action {
             Self::Card(action) => card_action_label(action, i18n),
             Self::EditNote => i18n.anki().studying_edit().into_owned(),
             Self::AddNote => i18n.anki().actions_add().into_owned(),
-            Self::CloseReview => i18n.text("action-back"),
+            Self::OpenBrowser => i18n.text("action-browse"),
+            Self::FocusSearch | Self::RunSearch => i18n.anki().actions_search().into_owned(),
+            Self::ToggleNotesMode => i18n
+                .anki()
+                .browsing_toggle_showing_cards_notes()
+                .into_owned(),
+            Self::TogglePreview => i18n.anki().actions_preview().into_owned(),
+            Self::ToggleSelected => i18n.text("action-toggle-selected"),
+            Self::SelectAll => i18n.text("action-select-all"),
+            Self::ToggleSuspend => i18n.anki().browsing_toggle_suspend().into_owned(),
+            Self::ChangeDeck => i18n.anki().browsing_change_deck().into_owned(),
+            Self::AddTags => i18n.anki().browsing_add_tags2().into_owned(),
+            Self::RemoveTags => i18n.anki().browsing_remove_tags().into_owned(),
+            Self::SortBy => i18n.text("action-sort-by"),
+            Self::LeaveSearch | Self::CloseReview => i18n.text("action-back"),
             Self::Quit => i18n.text("action-quit"),
         }
     }

@@ -21,12 +21,14 @@ use crate::i18n::I18n;
 use crate::tui::action::Action;
 use crate::tui::add_form::{self, AddForm};
 use crate::tui::audio::{Audio, AudioEvent, Track};
+use crate::tui::browser::{Browser, Focus};
 use crate::tui::choices::Choices;
 use crate::tui::custom_study_form::{self, CustomStudyForm};
 use crate::tui::deck_list::DeckList;
 use crate::tui::editor::EditorError;
 use crate::tui::error_text;
 use crate::tui::full_sync_prompt::{Choice, FullSyncPrompt};
+use crate::tui::fuzzy_list::FuzzyList;
 use crate::tui::hit_map::{Hit, HitMap};
 use crate::tui::keymap::{self, Context};
 use crate::tui::login_form::{Field, LoginForm};
@@ -34,6 +36,7 @@ use crate::tui::overview::DeckScreen;
 use crate::tui::palette::{self, Palette};
 use crate::tui::quit_prompt::{self, QuitChoice};
 use crate::tui::review::{Review, Stage};
+use crate::tui::tag_input::TagInput;
 use crate::tui::tasks::{TaskResult, Tasks};
 use crate::tui::unbury_prompt::{self, UnburyChoice};
 
@@ -47,9 +50,18 @@ pub enum Overlay {
     Unbury(Choices<UnburyChoice>),
     CustomStudy(CustomStudyForm),
     Add(AddForm),
+    ChangeDeck(FuzzyList<DeckId>),
+    /// Column indexes of the browser's sortable columns.
+    SortBy(FuzzyList<usize>),
+    Tags {
+        remove: bool,
+        input: TagInput,
+    },
 }
 
 /// A note for the editor, and what to do with it afterwards.
+mod browsing;
+
 pub struct EditRequest {
     pub note: NoteText,
     purpose: Purpose,
@@ -77,6 +89,8 @@ pub struct State {
     /// The sound the audio thread reports as playing.
     playing: Option<SoundRef>,
     decks: DeckList,
+    /// Shown over everything else; closing it returns to what was there.
+    browser: Option<Browser>,
     /// The deck overview; studying happens on top of it.
     deck_screen: Option<DeckScreen>,
     review: Option<Review>,
@@ -111,6 +125,7 @@ impl State {
             audio,
             playing: None,
             decks: DeckList::default(),
+            browser: None,
             deck_screen: None,
             review: None,
             edit: None,
@@ -147,6 +162,10 @@ impl State {
         self.playing
     }
 
+    pub const fn browser(&self) -> Option<&Browser> {
+        self.browser.as_ref()
+    }
+
     pub const fn deck_screen(&self) -> Option<&DeckScreen> {
         self.deck_screen.as_ref()
     }
@@ -179,6 +198,12 @@ impl State {
 
     pub fn context(&self) -> Context {
         match self.overlay {
+            Overlay::None if self.browser.is_some() => {
+                match self.browser.as_ref().map(Browser::focus) {
+                    Some(Focus::Search) => Context::BrowserSearch,
+                    _ => Context::Browser,
+                }
+            },
             Overlay::None => match &self.review {
                 None => match &self.deck_screen {
                     Some(screen) if screen.is_filtered() => Context::FilteredOverview,
@@ -193,13 +218,13 @@ impl State {
                 },
             },
             Overlay::Help => Context::Help,
-            Overlay::Palette(_) => Context::Palette,
+            Overlay::Palette(_) | Overlay::ChangeDeck(_) | Overlay::SortBy(_) => Context::Palette,
             Overlay::Login(_) => Context::Login,
             Overlay::FullSync(_) => Context::FullSync,
             Overlay::Quit(_) => Context::Quit,
             Overlay::Unbury(_) => Context::Unbury,
             Overlay::CustomStudy(_) => Context::CustomStudy,
-            Overlay::Add(_) => Context::Add,
+            Overlay::Add(_) | Overlay::Tags { .. } => Context::Add,
         }
     }
 
@@ -539,6 +564,10 @@ impl State {
                 },
             },
             Overlay::Add(_) => self.handle_add_key(key.code, typed, i18n),
+            Overlay::ChangeDeck(_) | Overlay::SortBy(_) | Overlay::Tags { .. } => {
+                self.handle_browser_overlay_key(key.code, typed, i18n);
+            },
+            Overlay::None if self.browser.is_some() => self.handle_browser_key(key.code, typed),
             Overlay::None if self.review.is_some() => self.handle_review_key(key.code, typed),
             Overlay::None if self.deck_screen.is_some() => {},
             Overlay::None => match key.code {
@@ -579,6 +608,13 @@ impl State {
             },
             MouseEventKind::ScrollUp => match &mut self.overlay {
                 Overlay::Palette(palette) => palette.select_previous(),
+                Overlay::ChangeDeck(list) => list.select_previous(),
+                Overlay::SortBy(list) => list.select_previous(),
+                Overlay::None if self.browser.is_some() => {
+                    if let Some(browser) = &mut self.browser {
+                        browser.move_cursor(-1);
+                    }
+                },
                 Overlay::None => match &mut self.review {
                     Some(review) => review.scroll_up(),
                     None if self.deck_screen.is_some() => {},
@@ -588,6 +624,13 @@ impl State {
             },
             MouseEventKind::ScrollDown => match &mut self.overlay {
                 Overlay::Palette(palette) => palette.select_next(),
+                Overlay::ChangeDeck(list) => list.select_next(),
+                Overlay::SortBy(list) => list.select_next(),
+                Overlay::None if self.browser.is_some() => {
+                    if let Some(browser) = &mut self.browser {
+                        browser.move_cursor(1);
+                    }
+                },
                 Overlay::None => match &mut self.review {
                     Some(review) => review.scroll_down(),
                     None if self.deck_screen.is_some() => {},
@@ -603,7 +646,21 @@ impl State {
         match hit {
             Some(Hit::Action(action)) => self.perform(action, i18n),
             Some(Hit::ListEntry(index)) => {
-                if let Overlay::Add(form) = &mut self.overlay {
+                if let Overlay::ChangeDeck(list) = &mut self.overlay {
+                    list.select(index);
+
+                    if let Some(&deck) = list.selected_value() {
+                        self.move_to_deck(deck, i18n);
+                    }
+                } else if let Overlay::SortBy(list) = &mut self.overlay {
+                    list.select(index);
+                    let column = list.selected_value().copied();
+                    self.overlay = Overlay::None;
+
+                    if let Some(column) = column {
+                        self.sort_by(column, i18n);
+                    }
+                } else if let Overlay::Add(form) = &mut self.overlay {
                     if let Some(picker) = form.picker_mut() {
                         picker.select(index);
                     }
@@ -618,11 +675,28 @@ impl State {
                 }
             },
             Some(Hit::AddField(field)) => self.click_add_field(field, i18n),
-            Some(Hit::TagCompletion(index)) => {
-                if let Overlay::Add(form) = &mut self.overlay {
-                    form.select_completion(index);
-                    form.complete();
+            Some(Hit::BrowserRow(index)) => {
+                if let Some(browser) = &mut self.browser {
+                    browser.focus_table();
+                    browser.click(index);
                 }
+            },
+            Some(Hit::BrowserColumn(column)) => self.sort_by(column, i18n),
+            Some(Hit::BrowserSearch) => {
+                if let Some(browser) = &mut self.browser {
+                    browser.focus_search();
+                }
+            },
+            Some(Hit::TagCompletion(index)) => match &mut self.overlay {
+                Overlay::Add(form) => {
+                    form.tags_mut().select_completion(index);
+                    form.tags_mut().complete();
+                },
+                Overlay::Tags { input, .. } => {
+                    input.select_completion(index);
+                    input.complete();
+                },
+                _ => {},
             },
             Some(Hit::LoginField(field)) => {
                 if let Overlay::Login(form) = &mut self.overlay {
@@ -965,6 +1039,7 @@ impl State {
 
         match request.purpose {
             Purpose::Edit => match request.note.save(collection, &text) {
+                Ok(true) if self.browser.is_some() => self.refresh_browser(i18n),
                 Ok(true) => self.rerender(i18n),
                 Ok(false) => {},
                 Err(error) => {
@@ -981,9 +1056,10 @@ impl State {
                         i18n.anki().adding_added().into_owned()
                     });
                     self.reload_decks(i18n);
+                    self.refresh_browser(i18n);
 
                     // A review would move on to the next card if refreshed now
-                    if self.review.is_none() {
+                    if self.review.is_none() && self.browser.is_none() {
                         self.refresh_deck_screen(i18n);
                     }
                 },
@@ -1027,7 +1103,7 @@ impl State {
                     note,
                     purpose: Purpose::Add {
                         deck: form.deck(),
-                        tags: form.tag_list(),
+                        tags: form.tags().tags(),
                     },
                 });
             },
@@ -1074,14 +1150,15 @@ impl State {
             return;
         }
 
-        let completing = form.focus() == add_form::Field::Tags && !form.completions().is_empty();
+        let completing =
+            form.focus() == add_form::Field::Tags && !form.tags().completions().is_empty();
 
         match key {
             KeyCode::Tab if completing => {
-                form.complete();
+                form.tags_mut().complete();
             },
-            KeyCode::Up if completing => form.previous_completion(),
-            KeyCode::Down if completing => form.next_completion(),
+            KeyCode::Up if completing => form.tags_mut().previous_completion(),
+            KeyCode::Down if completing => form.tags_mut().next_completion(),
             KeyCode::Tab | KeyCode::Down => form.focus_next(),
             KeyCode::BackTab | KeyCode::Up => form.focus_previous(),
             KeyCode::Backspace => form.pop(),
@@ -1226,6 +1303,31 @@ impl State {
     fn palette_actions(&self) -> Vec<Action> {
         let mut actions = vec![Action::ToggleHelp];
 
+        if self.browser.is_some() {
+            actions.extend([
+                Action::FocusSearch,
+                Action::ToggleNotesMode,
+                Action::TogglePreview,
+                Action::SortBy,
+                Action::SelectAll,
+                Action::EditNote,
+                Action::AddNote,
+                Action::ToggleSuspend,
+                Action::Card(CardAction::ToggleMark),
+            ]);
+            actions.extend(Flag::ALL.map(|flag| Action::Card(CardAction::ToggleFlag(flag))));
+            actions.extend([
+                Action::ChangeDeck,
+                Action::AddTags,
+                Action::RemoveTags,
+                Action::Card(CardAction::DeleteNote),
+                Action::Undo,
+                Action::CloseBrowser,
+                Action::Quit,
+            ]);
+            return actions;
+        }
+
         if self.review.is_none()
             && let Some(screen) = &self.deck_screen
         {
@@ -1310,6 +1412,10 @@ impl State {
     }
 
     fn perform(&mut self, action: Action, i18n: &I18n) {
+        if self.browser.is_some() && self.perform_in_browser(action, i18n) {
+            return;
+        }
+
         match action {
             Action::ToggleHelp => {
                 self.overlay = match self.overlay {
@@ -1329,7 +1435,7 @@ impl State {
             Action::LogIn => self.overlay = Overlay::Login(LoginForm::new()),
             Action::LogOut => self.tasks.log_out(),
             // Studying keeps the collection; syncing waits for the deck list, like in Anki
-            Action::Sync if self.review.is_some() => {},
+            Action::Sync if self.review.is_some() || self.browser.is_some() => {},
             Action::Sync => {
                 if self.session.is_none() {
                     self.overlay = Overlay::Login(LoginForm::new());
@@ -1357,7 +1463,6 @@ impl State {
             {
                 self.change_deck(i18n, overview::empty);
             },
-            Action::Rebuild | Action::Empty => {},
             Action::CloseOverview => self.close_overview(i18n),
             Action::ShowAnswer => self.show_answer(i18n),
             Action::Answer(rating) => self.answer(rating, i18n),
@@ -1365,6 +1470,24 @@ impl State {
             Action::ReplayAudio => self.play_side(true),
             Action::Card(action) => self.card_action(action, i18n),
             Action::EditNote => self.request_edit(i18n),
+            Action::OpenBrowser => self.open_browser(i18n),
+            // Rebuild and Empty are for filtered decks; the rest only work while the browser
+            // is open, which handles them first
+            Action::Rebuild
+            | Action::Empty
+            | Action::CloseBrowser
+            | Action::FocusSearch
+            | Action::RunSearch
+            | Action::LeaveSearch
+            | Action::ToggleNotesMode
+            | Action::TogglePreview
+            | Action::ToggleSelected
+            | Action::SelectAll
+            | Action::ToggleSuspend
+            | Action::ChangeDeck
+            | Action::AddTags
+            | Action::RemoveTags
+            | Action::SortBy => {},
             Action::CloseReview => {
                 self.audio.stop();
                 self.review = None;

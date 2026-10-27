@@ -25,6 +25,10 @@ pub enum Hit {
     CustomStudyField(custom_study_form::Field),
     AddField(add_form::Field),
     TagCompletion(usize),
+    /// A table row, by its position in the results.
+    BrowserRow(usize),
+    BrowserColumn(usize),
+    BrowserSearch,
     Deck(DeckId),
     Sound(SoundRef),
     /// The expand or collapse arrow in front of a deck.

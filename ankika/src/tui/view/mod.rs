@@ -1,4 +1,5 @@
 mod add;
+mod browser;
 mod buttons;
 mod custom_study;
 mod footer;
@@ -12,6 +13,8 @@ mod overview;
 mod prompt;
 mod quit;
 mod review;
+mod tag_input;
+mod tags;
 mod unbury;
 
 use ratatui::Frame;
@@ -49,6 +52,28 @@ pub fn render(
     .areas(area);
 
     header::render(frame, header_area, state, i18n, theme, &mut hits);
+
+    if let Some(browser) = state.browser() {
+        browser::render(frame, main_area, browser, i18n, theme, &mut hits);
+    } else {
+        render_main(frame, main_area, state, images, i18n, theme, &mut hits);
+    }
+
+    footer::render(frame, footer_area, state, i18n, theme, &mut hits);
+    render_overlay(frame, area, state, i18n, theme, &mut hits);
+
+    hits
+}
+
+fn render_main(
+    frame: &mut Frame<'_>,
+    main_area: Rect,
+    state: &State,
+    images: &Images,
+    i18n: &I18n,
+    theme: Theme,
+    hits: &mut HitMap,
+) {
     match state.review() {
         Some(review) => {
             let context = review::Context {
@@ -58,20 +83,28 @@ pub fn render(
                 theme,
             };
 
-            review::render(frame, main_area, review, &context, &mut hits);
+            review::render(frame, main_area, review, &context, hits);
         },
         None => match state.deck_screen() {
             Some(screen) => {
-                overview::render(frame, main_area, screen, state, i18n, theme, &mut hits);
+                overview::render(frame, main_area, screen, state, i18n, theme, hits);
             },
-            None => home::render(frame, main_area, state, i18n, theme, &mut hits),
+            None => home::render(frame, main_area, state, i18n, theme, hits),
         },
     }
-    footer::render(frame, footer_area, state, i18n, theme, &mut hits);
+}
 
+fn render_overlay(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    state: &State,
+    i18n: &I18n,
+    theme: Theme,
+    hits: &mut HitMap,
+) {
     match state.overlay() {
         Overlay::None => {},
-        Overlay::Help => help::render(frame, area, i18n, theme, &mut hits),
+        Overlay::Help => help::render(frame, area, i18n, theme, hits),
         Overlay::Palette(palette) => {
             let title = Action::OpenPalette.label(i18n);
             let placeholder = i18n.text("palette-placeholder");
@@ -80,23 +113,44 @@ pub fn render(
                 placeholder: &placeholder,
             };
 
-            fuzzy_list::render(frame, area, palette, &labels, i18n, theme, &mut hits);
+            fuzzy_list::render(frame, area, palette, &labels, i18n, theme, hits);
         },
-        Overlay::Login(form) => login::render(frame, area, form, state, i18n, theme, &mut hits),
+        Overlay::Login(form) => login::render(frame, area, form, state, i18n, theme, hits),
         Overlay::FullSync(prompt) => {
-            full_sync::render(frame, area, prompt, state, i18n, theme, &mut hits);
+            full_sync::render(frame, area, prompt, state, i18n, theme, hits);
         },
-        Overlay::Quit(choices) => quit::render(frame, area, choices, state, i18n, theme, &mut hits),
+        Overlay::Quit(choices) => quit::render(frame, area, choices, state, i18n, theme, hits),
         Overlay::Unbury(choices) => {
-            unbury::render(frame, area, choices, state, i18n, theme, &mut hits);
+            unbury::render(frame, area, choices, state, i18n, theme, hits);
         },
         Overlay::CustomStudy(form) => {
-            custom_study::render(frame, area, form, state, i18n, theme, &mut hits);
+            custom_study::render(frame, area, form, state, i18n, theme, hits);
         },
-        Overlay::Add(form) => add::render(frame, area, form, state, i18n, theme, &mut hits),
-    }
+        Overlay::Add(form) => add::render(frame, area, form, state, i18n, theme, hits),
+        Overlay::ChangeDeck(list) => {
+            let title = Action::ChangeDeck.label(i18n);
+            let placeholder = i18n.text("picker-placeholder");
+            let labels = fuzzy_list::Labels {
+                title: &title,
+                placeholder: &placeholder,
+            };
 
-    hits
+            fuzzy_list::render(frame, area, list, &labels, i18n, theme, hits);
+        },
+        Overlay::SortBy(list) => {
+            let title = Action::SortBy.label(i18n);
+            let placeholder = i18n.text("picker-placeholder");
+            let labels = fuzzy_list::Labels {
+                title: &title,
+                placeholder: &placeholder,
+            };
+
+            fuzzy_list::render(frame, area, list, &labels, i18n, theme, hits);
+        },
+        Overlay::Tags { remove, input } => {
+            tags::render(frame, area, *remove, input, i18n, theme, hits);
+        },
+    }
 }
 
 /// Clears `area` and draws the shared overlay frame, returning the inner area.

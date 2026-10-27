@@ -1,9 +1,8 @@
-use ankika_core::card_actions::Flag;
 use ankika_core::review::Rating;
 use ankika_core::review::StudyCard;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Margin, Rect, Size};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Paragraph};
 
@@ -14,7 +13,7 @@ use crate::tui::hit_map::{Hit, HitMap};
 use crate::tui::images::Images;
 use crate::tui::review::{Review, Stage};
 use crate::tui::state::State;
-use crate::tui::theme::Theme;
+use crate::tui::theme::{self, Theme};
 use crate::tui::view::buttons::{self, Button, GAP};
 
 const BOTTOM_HEIGHT: u16 = 3;
@@ -152,23 +151,10 @@ fn title(review: &Review, theme: Theme) -> Line<'static> {
     }
 
     if let Some(flag) = marks.flag {
-        spans.push(Span::styled("⚑ ", Style::new().fg(flag_color(flag))));
+        spans.push(Span::styled("⚑ ", Style::new().fg(theme::flag_color(flag))));
     }
 
     Line::from(spans)
-}
-
-/// Close to the colors of Anki's flags.
-const fn flag_color(flag: Flag) -> Color {
-    match flag {
-        Flag::Red => Color::Rgb(0xff, 0x6b, 0x6b),
-        Flag::Orange => Color::Rgb(0xff, 0xa9, 0x4d),
-        Flag::Green => Color::Rgb(0x51, 0xcf, 0x66),
-        Flag::Blue => Color::Rgb(0x4d, 0xab, 0xf7),
-        Flag::Pink => Color::Rgb(0xf7, 0x83, 0xac),
-        Flag::Turquoise => Color::Rgb(0x3b, 0xc9, 0xdb),
-        Flag::Purple => Color::Rgb(0x97, 0x75, 0xfa),
-    }
 }
 
 fn render_card(

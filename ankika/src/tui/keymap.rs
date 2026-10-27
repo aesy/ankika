@@ -15,6 +15,8 @@ pub enum Context {
     Unbury,
     CustomStudy,
     Add,
+    Browser,
+    BrowserSearch,
     Overview,
     FilteredOverview,
     ReviewQuestion,
@@ -66,13 +68,21 @@ impl Binding {
     }
 
     fn matches(&self, key: &KeyEvent) -> bool {
-        // Terminals disagree on whether shifted characters like `?` carry SHIFT
-        let modifiers = match key.code {
-            KeyCode::Char(_) => key.modifiers.difference(KeyModifiers::SHIFT),
-            _ => key.modifiers,
+        // Terminals disagree on whether shifted characters like `?` carry SHIFT, and with
+        // keyboard enhancement `Ctrl+Shift+A` may arrive as a lowercase `a` with SHIFT
+        let (code, modifiers) = match key.code {
+            KeyCode::Char(character) => (
+                KeyCode::Char(if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    character.to_ascii_uppercase()
+                } else {
+                    character
+                }),
+                key.modifiers.difference(KeyModifiers::SHIFT),
+            ),
+            _ => (key.code, key.modifiers),
         };
 
-        key.code == self.code && modifiers == self.modifiers
+        code == self.code && modifiers == self.modifiers
     }
 
     pub fn label(&self) -> String {
@@ -97,6 +107,7 @@ const UNDO: Binding = Binding::ctrl('z', "Ctrl+Z", Action::Undo);
 /// `terminal::init`; the palette has every action too.
 const CARD_ACTIONS: &[Binding] = &[
     Binding::key('a', Action::AddNote),
+    Binding::key('b', Action::OpenBrowser),
     Binding::key('e', Action::EditNote),
     Binding::key('*', Action::Card(CardAction::ToggleMark)),
     Binding::key('-', Action::Card(CardAction::BuryCard)),
@@ -119,7 +130,7 @@ const CARD_ACTIONS: &[Binding] = &[
 ];
 
 /// The card actions that don't take a plain character, for while an answer is typed.
-const CARD_ACTIONS_WHILE_TYPING: &[Binding] = CARD_ACTIONS.split_at(7).1;
+const CARD_ACTIONS_WHILE_TYPING: &[Binding] = CARD_ACTIONS.split_at(8).1;
 
 const fn flag(digit: char, flag: Flag) -> Binding {
     let label = match flag {
@@ -139,6 +150,7 @@ const CLOSE_REVIEW: Binding = Binding::named(KeyCode::Esc, "Esc", Action::CloseR
 const MAIN: &[Binding] = &[
     Binding::named(KeyCode::Enter, "Enter", Action::OpenDeck),
     Binding::key('a', Action::AddNote),
+    Binding::key('b', Action::OpenBrowser),
     Binding::key('?', Action::ToggleHelp),
     Binding::key(':', Action::OpenPalette),
     Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
@@ -147,11 +159,61 @@ const MAIN: &[Binding] = &[
     QUIT,
 ];
 
+/// Anki's browser shortcuts. Like the card actions, the `Ctrl` ones with digits, Shift
+/// or Alt need keyboard enhancement; the palette has them all.
+const BROWSER: &[Binding] = &[
+    Binding::named(KeyCode::Char(' '), "Space", Action::ToggleSelected),
+    Binding::key('/', Action::FocusSearch),
+    Binding::ctrl('f', "Ctrl+F", Action::FocusSearch),
+    Binding::key('t', Action::ToggleNotesMode),
+    Binding::key('p', Action::TogglePreview),
+    Binding::key('e', Action::EditNote),
+    Binding::key('a', Action::AddNote),
+    Binding::ctrl('a', "Ctrl+A", Action::SelectAll),
+    Binding::ctrl('j', "Ctrl+J", Action::ToggleSuspend),
+    Binding::ctrl('k', "Ctrl+K", Action::Card(CardAction::ToggleMark)),
+    Binding::ctrl('d', "Ctrl+D", Action::ChangeDeck),
+    Binding::ctrl('A', "Ctrl+Shift+A", Action::AddTags),
+    Binding::new(
+        KeyCode::Char('A'),
+        KeyModifiers::CONTROL.union(KeyModifiers::ALT),
+        "Ctrl+Alt+Shift+A",
+        Action::RemoveTags,
+    ),
+    flag('1', Flag::Red),
+    flag('2', Flag::Orange),
+    flag('3', Flag::Green),
+    flag('4', Flag::Blue),
+    flag('5', Flag::Pink),
+    flag('6', Flag::Turquoise),
+    flag('7', Flag::Purple),
+    Binding::new(
+        KeyCode::Delete,
+        KeyModifiers::CONTROL,
+        "Ctrl+Delete",
+        Action::Card(CardAction::DeleteNote),
+    ),
+    UNDO,
+    Binding::named(KeyCode::Esc, "Esc", Action::CloseBrowser),
+    Binding::key('q', Action::CloseBrowser),
+    Binding::key('?', Action::ToggleHelp),
+    Binding::key(':', Action::OpenPalette),
+    Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
+    QUIT,
+];
+
+const BROWSER_SEARCH: &[Binding] = &[
+    Binding::named(KeyCode::Enter, "Enter", Action::RunSearch),
+    Binding::named(KeyCode::Esc, "Esc", Action::LeaveSearch),
+    QUIT,
+];
+
 const CLOSE_OVERVIEW: Binding = Binding::named(KeyCode::Esc, "Esc", Action::CloseOverview);
 
 const OVERVIEW: &[Binding] = &[
     Binding::named(KeyCode::Enter, "Enter", Action::Study),
     Binding::key('a', Action::AddNote),
+    Binding::key('b', Action::OpenBrowser),
     Binding::key('c', Action::CustomStudy),
     Binding::key('u', Action::Unbury),
     CLOSE_OVERVIEW,
@@ -167,6 +229,7 @@ const OVERVIEW: &[Binding] = &[
 const FILTERED_OVERVIEW: &[Binding] = &[
     Binding::named(KeyCode::Enter, "Enter", Action::Study),
     Binding::key('a', Action::AddNote),
+    Binding::key('b', Action::OpenBrowser),
     Binding::key('r', Action::Rebuild),
     Binding::key('e', Action::Empty),
     Binding::key('u', Action::Unbury),
@@ -254,6 +317,8 @@ const fn bindings(context: Context) -> &'static [Binding] {
         | Context::Unbury
         | Context::CustomStudy
         | Context::Add => OVERLAY,
+        Context::Browser => BROWSER,
+        Context::BrowserSearch => BROWSER_SEARCH,
         Context::Overview => OVERVIEW,
         Context::FilteredOverview => FILTERED_OVERVIEW,
         Context::ReviewQuestion => REVIEW_QUESTION,
@@ -331,6 +396,7 @@ mod tests {
             vec![
                 (Action::OpenDeck, vec!["Enter".to_owned()]),
                 (Action::AddNote, vec!["a".to_owned()]),
+                (Action::OpenBrowser, vec!["b".to_owned()]),
                 (Action::ToggleHelp, vec!["?".to_owned()]),
                 (
                     Action::OpenPalette,

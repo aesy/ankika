@@ -38,3 +38,9 @@ error-deck-missing = The deck no longer exists.
 adding-duplicate = Added. The first field matches another note of this type.
 picker-placeholder = Type to search
 adding-missing-cloze = Not added: a cloze note type needs at least one cloze deletion, like {"{{"}c1::text{"}}"}.
+
+action-toggle-selected = Select
+action-select-all = Select All
+action-sort-by = Sort By
+action-browse = Browse
+error-browser-setting = Could not store the browser setting. See the log for details.

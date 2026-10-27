@@ -1,5 +1,6 @@
 pub mod account;
 pub mod adding;
+pub mod browser;
 pub mod card_actions;
 pub mod collection;
 pub mod decks;

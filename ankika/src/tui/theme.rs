@@ -1,5 +1,6 @@
 use std::env;
 
+use ankika_core::card_actions::Flag;
 use ratatui::style::Color;
 
 #[derive(Debug, Clone, Copy)]
@@ -53,5 +54,18 @@ impl Theme {
             env::var("COLORTERM").is_ok_and(|value| value == "truecolor" || value == "24bit");
 
         if true_color { TRUE_COLOR } else { INDEXED }
+    }
+}
+
+/// Close to the colors of Anki's flags.
+pub const fn flag_color(flag: Flag) -> Color {
+    match flag {
+        Flag::Red => Color::Rgb(0xff, 0x6b, 0x6b),
+        Flag::Orange => Color::Rgb(0xff, 0xa9, 0x4d),
+        Flag::Green => Color::Rgb(0x51, 0xcf, 0x66),
+        Flag::Blue => Color::Rgb(0x4d, 0xab, 0xf7),
+        Flag::Pink => Color::Rgb(0xf7, 0x83, 0xac),
+        Flag::Turquoise => Color::Rgb(0x3b, 0xc9, 0xdb),
+        Flag::Purple => Color::Rgb(0x97, 0x75, 0xfa),
     }
 }
