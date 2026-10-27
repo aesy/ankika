@@ -19,6 +19,11 @@ pub enum DeckError {
         #[source]
         source: AnkiError,
     },
+    #[error("Failed to look up the deck: {}", english(source))]
+    Find {
+        #[source]
+        source: AnkiError,
+    },
 }
 
 impl DeckError {
@@ -26,7 +31,7 @@ impl DeckError {
     #[must_use]
     pub const fn anki_error(&self) -> &AnkiError {
         match self {
-            Self::Load { source } | Self::SetCollapsed { source } => source,
+            Self::Load { source } | Self::SetCollapsed { source } | Self::Find { source } => source,
         }
     }
 }
@@ -59,6 +64,13 @@ pub fn deck_tree(collection: &mut Collection) -> Result<Vec<DeckNode>, DeckError
         .map_err(|source| DeckError::Load { source })?;
 
     Ok(root.children.into_iter().map(DeckNode::from).collect())
+}
+
+/// A deck by its full name like `A::B`, ignoring case like Anki.
+pub fn find(collection: &Collection, name: &str) -> Result<Option<DeckId>, DeckError> {
+    collection
+        .get_deck_id(name)
+        .map_err(|source| DeckError::Find { source })
 }
 
 /// Stored in the collection like Anki does, so it syncs to other devices.

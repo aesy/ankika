@@ -14,6 +14,7 @@ mod login;
 mod overview;
 mod prompt;
 mod quit;
+mod replace;
 mod review;
 mod stats;
 mod tag_input;
@@ -167,6 +168,12 @@ fn render_overlay(
         },
         Overlay::Settings(settings) => {
             form::render(frame, area, settings, state.mouse(), i18n, theme, hits);
+        },
+        Overlay::Import(import) | Overlay::Export { form: import, .. } => {
+            form::render(frame, area, import, state.mouse(), i18n, theme, hits);
+        },
+        Overlay::ConfirmReplace(prompt) => {
+            replace::render(frame, area, prompt, state, i18n, theme, hits);
         },
         Overlay::DeckOptions(dialog) => {
             form::render(frame, area, dialog.form(), state.mouse(), i18n, theme, hits);

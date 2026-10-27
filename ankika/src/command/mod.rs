@@ -1,5 +1,7 @@
 pub mod completions;
 pub mod due;
+pub mod export;
+pub mod import;
 pub mod login;
 pub mod logout;
 pub mod man;

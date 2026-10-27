@@ -9,7 +9,7 @@ use crate::i18n::I18n;
 use crate::tui::action::Action;
 use crate::tui::hit_map::{Hit, HitMap};
 use crate::tui::review::{Review, Stage};
-use crate::tui::state::{State, SyncStatus};
+use crate::tui::state::{Busy, State, SyncStatus};
 use crate::tui::theme::Theme;
 
 const GAP: u16 = 1;
@@ -66,12 +66,22 @@ pub fn render(
 
     let username = Line::styled(format!("{} ", session.account.username), theme.muted);
     let username_width = u16::try_from(username.width()).unwrap_or(u16::MAX);
-    let (text, color) = match state.sync_status() {
-        SyncStatus::Syncing => (i18n.anki().sync_syncing().into_owned(), theme.muted),
-        _ if state.media_syncing() => (i18n.text("sync-status-media"), theme.muted),
-        SyncStatus::Idle => (i18n.text("action-sync"), theme.accent),
-        SyncStatus::Synced => (i18n.text("sync-status-synced"), theme.muted),
-        SyncStatus::Failed => (i18n.text("sync-status-failed"), theme.error),
+    let (text, color) = match state.busy() {
+        Some(Busy::Importing) => (
+            i18n.anki().importing_importing_file().into_owned(),
+            theme.muted,
+        ),
+        Some(Busy::Exporting) => (
+            i18n.anki().exporting_exporting_file().into_owned(),
+            theme.muted,
+        ),
+        None => match state.sync_status() {
+            SyncStatus::Syncing => (i18n.anki().sync_syncing().into_owned(), theme.muted),
+            _ if state.media_syncing() => (i18n.text("sync-status-media"), theme.muted),
+            SyncStatus::Idle => (i18n.text("action-sync"), theme.accent),
+            SyncStatus::Synced => (i18n.text("sync-status-synced"), theme.muted),
+            SyncStatus::Failed => (i18n.text("sync-status-failed"), theme.error),
+        },
     };
     let sync = HeaderButton {
         text,

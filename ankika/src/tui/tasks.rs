@@ -1,8 +1,14 @@
 use std::future::Future;
+use std::path::PathBuf;
 
 use anki::collection::Collection;
+use ankika_core::collection::CollectionError;
 use ankika_core::login::{self, LoginError};
 use ankika_core::media_sync;
+use ankika_core::packages::{
+    self, Contents, ExportScope, Format, ImportOptions, ImportSummary, PackageError,
+};
+use ankika_core::paths::Paths;
 use ankika_core::session::{Session, SessionError, SessionStore};
 use ankika_core::sync::{self, FullSyncDirection, FullSyncOutput, NormalSyncOutput, SyncError};
 use futures_util::future::{AbortHandle, Abortable};
@@ -34,6 +40,39 @@ pub enum TaskResult {
     /// Not sent when the media sync was aborted.
     MediaSynced(Result<(), SyncError>),
     Audio(AudioEvent),
+    /// The collection comes back reopened after the jobs that close it.
+    Package {
+        collection: Result<Collection, CollectionError>,
+        result: Result<PackageDone, PackageError>,
+    },
+}
+
+pub enum PackageJob {
+    ImportApkg {
+        file: PathBuf,
+        options: ImportOptions,
+    },
+    ImportColpkg {
+        file: PathBuf,
+    },
+    ExportApkg {
+        file: PathBuf,
+        scope: ExportScope,
+        contents: Contents,
+        format: Format,
+    },
+    ExportColpkg {
+        file: PathBuf,
+        media: bool,
+        format: Format,
+    },
+}
+
+pub enum PackageDone {
+    Imported(ImportSummary),
+    Replaced,
+    ExportedNotes(usize),
+    ExportedCollection,
 }
 
 /// Starts background work; results come back to the event loop through the channel.
@@ -124,6 +163,54 @@ impl Tasks {
             let output = sync::full_sync(collection, &session, direction).await;
 
             Some(TaskResult::FullSynced(output))
+        });
+    }
+
+    /// Imports or exports with the collection on its own thread, like a sync.
+    pub fn package(&mut self, mut collection: Collection, paths: Paths, job: PackageJob) {
+        self.spawn_sync(move || async move {
+            let (collection, result) = match job {
+                PackageJob::ImportApkg { file, options } => {
+                    let result = packages::import_apkg(&mut collection, &file, options)
+                        .map(PackageDone::Imported);
+
+                    (Ok(collection), result)
+                },
+                PackageJob::ImportColpkg { file } => {
+                    let reopened = packages::import_colpkg(collection, &paths, &file);
+
+                    (
+                        reopened.collection,
+                        reopened.result.map(|()| PackageDone::Replaced),
+                    )
+                },
+                PackageJob::ExportApkg {
+                    file,
+                    scope,
+                    contents,
+                    format,
+                } => {
+                    let result =
+                        packages::export_apkg(&mut collection, &file, scope, contents, format)
+                            .map(PackageDone::ExportedNotes);
+
+                    (Ok(collection), result)
+                },
+                PackageJob::ExportColpkg {
+                    file,
+                    media,
+                    format,
+                } => {
+                    let reopened = packages::export_colpkg(collection, &file, media, format);
+
+                    (
+                        reopened.collection,
+                        reopened.result.map(|()| PackageDone::ExportedCollection),
+                    )
+                },
+            };
+
+            Some(TaskResult::Package { collection, result })
         });
     }
 

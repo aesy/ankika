@@ -9,8 +9,9 @@ use crate::tui::hit_map::{Hit, HitMap};
 use crate::tui::theme::Theme;
 use crate::tui::view::buttons::{self, Button};
 
-const WIDTH: u16 = 76;
-const LABEL_WIDTH: u16 = 34;
+const WIDTH: u16 = 96;
+/// Room between a label and its value.
+const LABEL_GAP: u16 = 2;
 // Borders, margins, a blank line and the buttons
 const FIXED_HEIGHT: u16 = 6;
 
@@ -40,11 +41,20 @@ pub fn render(
     .areas(inner);
     let row_areas =
         Layout::vertical(vec![Constraint::Length(1); form.fields().len()]).split(fields_area);
+    // As wide as the longest label, leaving two fifths of the row for the values
+    let label_width = form
+        .fields()
+        .iter()
+        .map(|field| u16::try_from(Line::raw(field.label.as_str()).width()).unwrap_or(u16::MAX))
+        .max()
+        .unwrap_or(0)
+        .saturating_add(LABEL_GAP)
+        .min(inner.width / 5 * 3);
 
     for (index, (field, &row)) in form.fields().iter().zip(row_areas.iter()).enumerate() {
         let focused = form.focus() == Focus::Field(index);
         let [label_area, value_area] =
-            Layout::horizontal([Constraint::Length(LABEL_WIDTH), Constraint::Fill(1)]).areas(row);
+            Layout::horizontal([Constraint::Length(label_width), Constraint::Fill(1)]).areas(row);
         let label_style = if focused {
             Style::new().fg(theme.accent).add_modifier(Modifier::BOLD)
         } else {
@@ -65,7 +75,12 @@ pub fn render(
     }
 
     let row: Vec<Button> = [
-        (Focus::Save, i18n.anki().deck_config_save_button()),
+        (
+            Focus::Save,
+            form.submit
+                .clone()
+                .map_or_else(|| i18n.anki().deck_config_save_button(), Into::into),
+        ),
         (Focus::Cancel, i18n.anki().actions_cancel()),
     ]
     .into_iter()

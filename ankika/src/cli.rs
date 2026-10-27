@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use ankika_core::packages::UpdateCondition;
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 use serde::Deserialize;
 
@@ -71,10 +72,88 @@ pub enum Command {
     Due(DueArgs),
     /// Sync the collection and media without opening the TUI
     Sync,
+    /// Import an .apkg (decks) or .colpkg (a whole collection, replacing this one)
+    Import(ImportArgs),
+    /// Export the collection or a deck as .apkg, or the whole collection as .colpkg
+    Export(ExportArgs),
     /// Print a shell completion script
     Completions { shell: clap_complete::Shell },
     /// Print the man page
     Man,
+}
+
+#[derive(Debug, Args)]
+pub struct ImportArgs {
+    pub file: PathBuf,
+    #[command(flatten)]
+    pub options: ImportFlags,
+    /// Replace the collection without asking (.colpkg)
+    #[arg(long)]
+    pub yes: bool,
+}
+
+/// Anki's `.apkg` import options.
+#[derive(Debug, Args)]
+pub struct ImportFlags {
+    /// Import learning progress (.apkg)
+    #[arg(long)]
+    pub with_scheduling: bool,
+    /// Import deck presets (.apkg)
+    #[arg(long)]
+    pub with_presets: bool,
+    /// Merge note types instead of keeping both (.apkg)
+    #[arg(long)]
+    pub merge_notetypes: bool,
+    /// When to update existing notes (.apkg)
+    #[arg(long, value_name = "WHEN", default_value = "if-newer")]
+    pub update_notes: UpdateWhen,
+    /// When to update existing note types (.apkg)
+    #[arg(long, value_name = "WHEN", default_value = "if-newer")]
+    pub update_notetypes: UpdateWhen,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum UpdateWhen {
+    IfNewer,
+    Always,
+    Never,
+}
+
+impl From<UpdateWhen> for UpdateCondition {
+    fn from(when: UpdateWhen) -> Self {
+        match when {
+            UpdateWhen::IfNewer => Self::IfNewer,
+            UpdateWhen::Always => Self::Always,
+            UpdateWhen::Never => Self::Never,
+        }
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct ExportArgs {
+    pub file: PathBuf,
+    /// Only this deck and its subdecks, by full name (.apkg); the whole collection otherwise
+    #[arg(long, value_name = "NAME")]
+    pub deck: Option<String>,
+    #[command(flatten)]
+    pub contents: ContentFlags,
+    /// The older format, for Anki before 2.1.50
+    #[arg(long)]
+    pub legacy: bool,
+}
+
+/// What an export leaves out or adds.
+#[derive(Debug, Args)]
+pub struct ContentFlags {
+    /// Leave out learning progress (.apkg)
+    #[arg(long)]
+    pub no_scheduling: bool,
+    /// Leave out media
+    #[arg(long)]
+    pub no_media: bool,
+    /// Include deck presets (.apkg)
+    #[arg(long)]
+    pub with_presets: bool,
 }
 
 #[derive(Debug, Args)]

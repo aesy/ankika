@@ -43,6 +43,7 @@ use crate::tui::login_form::{Field, LoginForm};
 use crate::tui::overview::DeckScreen;
 use crate::tui::palette::{self, Palette};
 use crate::tui::quit_prompt::{self, QuitChoice};
+use crate::tui::replace_prompt::ReplacePrompt;
 use crate::tui::review::{Review, Stage};
 use crate::tui::settings_form;
 use crate::tui::stats_screen::StatsScreen;
@@ -69,6 +70,12 @@ pub enum Overlay {
     },
     Settings(Form),
     Profiles(FuzzyList<String>),
+    Import(Form),
+    Export {
+        form: Form,
+        decks: Vec<(DeckId, String)>,
+    },
+    ConfirmReplace(ReplacePrompt),
     /// Boxed, since the preset makes it much larger than the other overlays.
     DeckOptions(Box<DeckOptionsDialog>),
 }
@@ -87,6 +94,7 @@ impl DeckOptionsDialog {
 
 /// A note for the editor, and what to do with it afterwards.
 mod browsing;
+mod packaging;
 
 pub struct EditRequest {
     pub note: NoteText,
@@ -96,6 +104,13 @@ pub struct EditRequest {
 enum Purpose {
     Edit,
     Add { deck: DeckId, tags: Vec<String> },
+}
+
+/// A job that has the collection, shown in the header instead of the sync status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Busy {
+    Importing,
+    Exporting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,6 +132,7 @@ pub struct State {
     paths: Paths,
     /// The profile to open once quitting is done.
     switch_profile: Option<String>,
+    busy: Option<Busy>,
     /// The sound the audio thread reports as playing.
     playing: Option<SoundRef>,
     decks: DeckList,
@@ -161,6 +177,7 @@ impl State {
             config,
             paths,
             switch_profile: None,
+            busy: None,
             playing: None,
             decks: DeckList::default(),
             browser: None,
@@ -199,6 +216,10 @@ impl State {
 
     pub const fn config(&self) -> &Config {
         &self.config
+    }
+
+    pub const fn busy(&self) -> Option<Busy> {
+        self.busy
     }
 
     pub fn profile(&self) -> &str {
@@ -316,7 +337,11 @@ impl State {
             Overlay::Unbury(_) => Context::Unbury,
             Overlay::CustomStudy(_) => Context::CustomStudy,
             Overlay::Add(_) | Overlay::Tags { .. } => Context::Add,
-            Overlay::Settings(_) | Overlay::DeckOptions(_) => Context::Form,
+            Overlay::Settings(_)
+            | Overlay::DeckOptions(_)
+            | Overlay::Import(_)
+            | Overlay::Export { .. } => Context::Form,
+            Overlay::ConfirmReplace(_) => Context::Confirm,
         }
     }
 
@@ -477,6 +502,9 @@ impl State {
             },
             TaskResult::Audio(AudioEvent::NoOutputDevice) => {
                 self.notice = Some(i18n.text("audio-no-output"));
+            },
+            TaskResult::Package { collection, result } => {
+                self.finish_package(collection, result, i18n);
             },
             TaskResult::MediaSynced(result) => {
                 self.media_sync = None;
@@ -651,7 +679,15 @@ impl State {
                     self.confirm_list(i18n);
                 }
             },
-            Overlay::Settings(_) | Overlay::DeckOptions(_) => {
+            Overlay::ConfirmReplace(prompt) => {
+                if let Some(choice) = navigate(&mut prompt.choices, key.code) {
+                    self.choose_replace(choice);
+                }
+            },
+            Overlay::Settings(_)
+            | Overlay::DeckOptions(_)
+            | Overlay::Import(_)
+            | Overlay::Export { .. } => {
                 if let Some(form) = self.overlay_form() {
                     let outcome = form.handle_key(key.code, typed);
                     self.finish_form(outcome, i18n);
@@ -759,6 +795,7 @@ impl State {
                 }
             },
             Some(Hit::BrowserColumn(column)) => self.sort_by(column, i18n),
+            Some(Hit::ReplaceChoice(choice)) => self.choose_replace(choice),
             Some(Hit::Form(focus)) => {
                 if let Some(form) = self.overlay_form() {
                     let outcome = form.click(focus);
@@ -912,7 +949,9 @@ impl State {
     /// The settings or deck options form, when one is open.
     const fn overlay_form(&mut self) -> Option<&mut Form> {
         match &mut self.overlay {
-            Overlay::Settings(form) => Some(form),
+            Overlay::Settings(form) | Overlay::Import(form) | Overlay::Export { form, .. } => {
+                Some(form)
+            },
             Overlay::DeckOptions(dialog) => Some(&mut dialog.form),
             _ => None,
         }
@@ -926,6 +965,8 @@ impl State {
             form::Outcome::Save => match std::mem::replace(&mut self.overlay, Overlay::None) {
                 Overlay::Settings(form) => self.save_settings(form, i18n),
                 Overlay::DeckOptions(dialog) => self.save_deck_options(*dialog, i18n),
+                Overlay::Import(form) => self.submit_import(form, i18n),
+                Overlay::Export { form, decks } => self.submit_export(form, decks, i18n),
                 other => self.overlay = other,
             },
         }
@@ -1645,7 +1686,13 @@ impl State {
             actions.push(Action::LogIn);
         }
 
-        actions.extend([Action::OpenSettings, Action::SwitchProfile, Action::Quit]);
+        actions.extend([
+            Action::ImportPackage,
+            Action::ExportPackage,
+            Action::OpenSettings,
+            Action::SwitchProfile,
+            Action::Quit,
+        ]);
         actions
     }
 
@@ -1752,6 +1799,8 @@ impl State {
             Action::EditNote => self.request_edit(i18n),
             Action::OpenBrowser => self.open_browser(i18n),
             Action::SwitchProfile => self.open_profile_picker(i18n),
+            Action::ImportPackage => self.open_import(i18n),
+            Action::ExportPackage => self.open_export(i18n),
             Action::OpenSettings => {
                 self.overlay = Overlay::Settings(settings_form::new(&self.config, i18n));
             },

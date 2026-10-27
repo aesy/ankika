@@ -37,6 +37,8 @@ pub struct Form {
     pub title: String,
     /// Shown under the fields, like a note that some changes need a restart.
     pub note: Option<String>,
+    /// The submit button's label, instead of Save.
+    pub submit: Option<String>,
     fields: Vec<Field>,
     focus: Focus,
     error: Option<String>,
@@ -47,6 +49,7 @@ impl Form {
         Self {
             title,
             note: None,
+            submit: None,
             fields,
             focus: Focus::Field(0),
             error: None,

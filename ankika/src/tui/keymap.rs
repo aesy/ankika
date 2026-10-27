@@ -19,6 +19,7 @@ pub enum Context {
     BrowserSearch,
     Stats,
     Form,
+    Confirm,
     Overview,
     FilteredOverview,
     ReviewQuestion,
@@ -339,7 +340,8 @@ const fn bindings(context: Context) -> &'static [Binding] {
         | Context::Unbury
         | Context::CustomStudy
         | Context::Add
-        | Context::Form => OVERLAY,
+        | Context::Form
+        | Context::Confirm => OVERLAY,
         Context::Browser => BROWSER,
         Context::BrowserSearch => BROWSER_SEARCH,
         Context::Stats => STATS,

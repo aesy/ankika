@@ -36,6 +36,8 @@ cargo build --release
 |----------------------------|---------------------------------------------------------------|
 | `ankika due`               | Cards due today, for status bars; `--verbose-counts`, `--deck` |
 | `ankika sync`              | Syncs the collection and media, for timers                    |
+| `ankika import <FILE>`     | Imports an `.apkg`, or replaces the collection with a `.colpkg` |
+| `ankika export <FILE>`     | Exports the collection or `--deck` as `.apkg`, or a `.colpkg` |
 | `ankika completions <SHELL>` | A completion script for bash, zsh, fish, elvish or PowerShell |
 | `ankika man`               | The man page                                                  |
 

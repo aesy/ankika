@@ -70,3 +70,12 @@ deck-options-saved = Options saved.
 
 action-switch-profile = Switch Profile
 error-profiles = Could not list the profiles. See the log for details.
+
+package-file = File (.apkg or .colpkg)
+package-import-note = A .colpkg replaces this profile's whole collection; the options are for .apkg files.
+package-export-note = A .colpkg file always holds the whole collection.
+package-invalid-file = Enter the path of an .apkg or .colpkg file.
+package-import-summary = Imported { $found } notes: { $new } new, { $updated } updated, { $duplicate } duplicate, { $skipped } skipped.
+package-replaced = Collection replaced. The next sync will be a full sync.
+package-replace-question = Replace this profile's whole collection and media with { $file }? This can't be undone.
+package-replace = Replace
