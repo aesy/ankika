@@ -14,6 +14,7 @@ pub enum Context {
     Quit,
     Unbury,
     CustomStudy,
+    Add,
     Overview,
     FilteredOverview,
     ReviewQuestion,
@@ -95,6 +96,7 @@ const UNDO: Binding = Binding::ctrl('z', "Ctrl+Z", Action::Undo);
 /// Anki's card shortcuts. `Ctrl` with a digit needs a terminal that reports it, see
 /// `terminal::init`; the palette has every action too.
 const CARD_ACTIONS: &[Binding] = &[
+    Binding::key('a', Action::AddNote),
     Binding::key('e', Action::EditNote),
     Binding::key('*', Action::Card(CardAction::ToggleMark)),
     Binding::key('-', Action::Card(CardAction::BuryCard)),
@@ -117,7 +119,7 @@ const CARD_ACTIONS: &[Binding] = &[
 ];
 
 /// The card actions that don't take a plain character, for while an answer is typed.
-const CARD_ACTIONS_WHILE_TYPING: &[Binding] = CARD_ACTIONS.split_at(6).1;
+const CARD_ACTIONS_WHILE_TYPING: &[Binding] = CARD_ACTIONS.split_at(7).1;
 
 const fn flag(digit: char, flag: Flag) -> Binding {
     let label = match flag {
@@ -136,6 +138,7 @@ const CLOSE_REVIEW: Binding = Binding::named(KeyCode::Esc, "Esc", Action::CloseR
 
 const MAIN: &[Binding] = &[
     Binding::named(KeyCode::Enter, "Enter", Action::OpenDeck),
+    Binding::key('a', Action::AddNote),
     Binding::key('?', Action::ToggleHelp),
     Binding::key(':', Action::OpenPalette),
     Binding::ctrl('p', "Ctrl+P", Action::OpenPalette),
@@ -148,6 +151,7 @@ const CLOSE_OVERVIEW: Binding = Binding::named(KeyCode::Esc, "Esc", Action::Clos
 
 const OVERVIEW: &[Binding] = &[
     Binding::named(KeyCode::Enter, "Enter", Action::Study),
+    Binding::key('a', Action::AddNote),
     Binding::key('c', Action::CustomStudy),
     Binding::key('u', Action::Unbury),
     CLOSE_OVERVIEW,
@@ -162,6 +166,7 @@ const OVERVIEW: &[Binding] = &[
 /// Filtered decks are rebuilt and emptied instead of offering custom study, like in Anki.
 const FILTERED_OVERVIEW: &[Binding] = &[
     Binding::named(KeyCode::Enter, "Enter", Action::Study),
+    Binding::key('a', Action::AddNote),
     Binding::key('r', Action::Rebuild),
     Binding::key('e', Action::Empty),
     Binding::key('u', Action::Unbury),
@@ -247,7 +252,8 @@ const fn bindings(context: Context) -> &'static [Binding] {
         | Context::FullSync
         | Context::Quit
         | Context::Unbury
-        | Context::CustomStudy => OVERLAY,
+        | Context::CustomStudy
+        | Context::Add => OVERLAY,
         Context::Overview => OVERVIEW,
         Context::FilteredOverview => FILTERED_OVERVIEW,
         Context::ReviewQuestion => REVIEW_QUESTION,
@@ -324,6 +330,7 @@ mod tests {
             groups,
             vec![
                 (Action::OpenDeck, vec!["Enter".to_owned()]),
+                (Action::AddNote, vec!["a".to_owned()]),
                 (Action::ToggleHelp, vec!["?".to_owned()]),
                 (
                     Action::OpenPalette,

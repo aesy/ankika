@@ -4,6 +4,7 @@ use ankika_core::review::SoundRef;
 use ratatui::layout::{Position, Rect};
 
 use crate::tui::action::Action;
+use crate::tui::add_form;
 use crate::tui::custom_study_form;
 use crate::tui::full_sync_prompt::Choice;
 use crate::tui::login_form::Field;
@@ -13,7 +14,8 @@ use crate::tui::unbury_prompt::UnburyChoice;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hit {
     Action(Action),
-    PaletteEntry(usize),
+    /// An entry of the fuzzy list on screen, like the palette's.
+    ListEntry(usize),
     LoginField(Field),
     FullSyncChoice(Choice),
     QuitChoice(QuitChoice),
@@ -21,6 +23,8 @@ pub enum Hit {
     CustomStudyChoice(custom_study_form::Choice),
     CustomStudyKind(StudyKind),
     CustomStudyField(custom_study_form::Field),
+    AddField(add_form::Field),
+    TagCompletion(usize),
     Deck(DeckId),
     Sound(SoundRef),
     /// The expand or collapse arrow in front of a deck.
@@ -57,9 +61,9 @@ mod tests {
     fn topmost_region_wins() {
         let mut hits = HitMap::default();
         hits.register(Rect::new(0, 0, 10, 10), Hit::Overlay);
-        hits.register(Rect::new(2, 2, 3, 1), Hit::PaletteEntry(0));
+        hits.register(Rect::new(2, 2, 3, 1), Hit::ListEntry(0));
 
-        assert_eq!(hits.at(Position::new(3, 2)), Some(Hit::PaletteEntry(0)));
+        assert_eq!(hits.at(Position::new(3, 2)), Some(Hit::ListEntry(0)));
         assert_eq!(hits.at(Position::new(8, 8)), Some(Hit::Overlay));
         assert_eq!(hits.at(Position::new(20, 20)), None);
     }

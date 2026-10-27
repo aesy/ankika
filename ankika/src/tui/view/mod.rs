@@ -1,13 +1,14 @@
+mod add;
 mod buttons;
 mod custom_study;
 mod footer;
 mod full_sync;
+mod fuzzy_list;
 mod header;
 mod help;
 mod home;
 mod login;
 mod overview;
-mod palette;
 mod prompt;
 mod quit;
 mod review;
@@ -19,6 +20,7 @@ use ratatui::style::Style;
 use ratatui::widgets::{Block, BorderType, Clear};
 
 use crate::i18n::I18n;
+use crate::tui::action::Action;
 use crate::tui::hit_map::{Hit, HitMap};
 use crate::tui::images::Images;
 use crate::tui::state::{Overlay, State};
@@ -70,7 +72,16 @@ pub fn render(
     match state.overlay() {
         Overlay::None => {},
         Overlay::Help => help::render(frame, area, i18n, theme, &mut hits),
-        Overlay::Palette(palette) => palette::render(frame, area, palette, i18n, theme, &mut hits),
+        Overlay::Palette(palette) => {
+            let title = Action::OpenPalette.label(i18n);
+            let placeholder = i18n.text("palette-placeholder");
+            let labels = fuzzy_list::Labels {
+                title: &title,
+                placeholder: &placeholder,
+            };
+
+            fuzzy_list::render(frame, area, palette, &labels, i18n, theme, &mut hits);
+        },
         Overlay::Login(form) => login::render(frame, area, form, state, i18n, theme, &mut hits),
         Overlay::FullSync(prompt) => {
             full_sync::render(frame, area, prompt, state, i18n, theme, &mut hits);
@@ -82,6 +93,7 @@ pub fn render(
         Overlay::CustomStudy(form) => {
             custom_study::render(frame, area, form, state, i18n, theme, &mut hits);
         },
+        Overlay::Add(form) => add::render(frame, area, form, state, i18n, theme, &mut hits),
     }
 
     hits

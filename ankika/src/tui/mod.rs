@@ -1,4 +1,5 @@
 mod action;
+mod add_form;
 mod audio;
 mod card_text;
 mod choices;
@@ -7,6 +8,7 @@ mod deck_list;
 mod editor;
 mod error_text;
 mod full_sync_prompt;
+mod fuzzy_list;
 mod hit_map;
 mod images;
 mod keymap;
@@ -145,9 +147,9 @@ async fn event_loop(
         // Edits start from an input event, so the event reader has just delivered it and
         // stays idle until polled again: it can't take the editor's keystrokes. Dropping
         // it instead would leave a wake-up behind that breaks the terminal queries after.
-        if let Some(note) = state.take_edit() {
-            let edited = editor::edit(terminal, note.note_id(), &note.text());
-            state.finish_edit(note, edited, i18n);
+        if let Some(request) = state.take_edit() {
+            let edited = editor::edit(terminal, request.note.note_id(), &request.note.text());
+            state.finish_edit(request, edited, i18n);
         }
     }
 

@@ -1,5 +1,6 @@
 use anki::collection::Collection;
 use anki::decks::DeckId;
+use ankika_core::adding;
 use ankika_core::card_actions::{self, CardAction, Flag, Outcome};
 use ankika_core::collection::CollectionError;
 use ankika_core::decks;
@@ -18,6 +19,7 @@ use ratatui::layout::Position;
 
 use crate::i18n::I18n;
 use crate::tui::action::Action;
+use crate::tui::add_form::{self, AddForm};
 use crate::tui::audio::{Audio, AudioEvent, Track};
 use crate::tui::choices::Choices;
 use crate::tui::custom_study_form::{self, CustomStudyForm};
@@ -29,7 +31,7 @@ use crate::tui::hit_map::{Hit, HitMap};
 use crate::tui::keymap::{self, Context};
 use crate::tui::login_form::{Field, LoginForm};
 use crate::tui::overview::DeckScreen;
-use crate::tui::palette::Palette;
+use crate::tui::palette::{self, Palette};
 use crate::tui::quit_prompt::{self, QuitChoice};
 use crate::tui::review::{Review, Stage};
 use crate::tui::tasks::{TaskResult, Tasks};
@@ -44,6 +46,18 @@ pub enum Overlay {
     Quit(Choices<QuitChoice>),
     Unbury(Choices<UnburyChoice>),
     CustomStudy(CustomStudyForm),
+    Add(AddForm),
+}
+
+/// A note for the editor, and what to do with it afterwards.
+pub struct EditRequest {
+    pub note: NoteText,
+    purpose: Purpose,
+}
+
+enum Purpose {
+    Edit,
+    Add { deck: DeckId, tags: Vec<String> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,7 +81,7 @@ pub struct State {
     deck_screen: Option<DeckScreen>,
     review: Option<Review>,
     /// A note waiting for the event loop to open it in the editor.
-    edit: Option<NoteText>,
+    edit: Option<EditRequest>,
     /// Collapsed states changed while a sync had the collection.
     pending_collapse: Vec<(DeckId, bool)>,
     sync: SyncStatus,
@@ -185,6 +199,7 @@ impl State {
             Overlay::Quit(_) => Context::Quit,
             Overlay::Unbury(_) => Context::Unbury,
             Overlay::CustomStudy(_) => Context::CustomStudy,
+            Overlay::Add(_) => Context::Add,
         }
     }
 
@@ -523,6 +538,7 @@ impl State {
                     }
                 },
             },
+            Overlay::Add(_) => self.handle_add_key(key.code, typed, i18n),
             Overlay::None if self.review.is_some() => self.handle_review_key(key.code, typed),
             Overlay::None if self.deck_screen.is_some() => {},
             Overlay::None => match key.code {
@@ -555,7 +571,7 @@ impl State {
                 self.click(hit, i18n);
             },
             MouseEventKind::Moved => {
-                if let (Overlay::Palette(palette), Some(Hit::PaletteEntry(index))) =
+                if let (Overlay::Palette(palette), Some(Hit::ListEntry(index))) =
                     (&mut self.overlay, hit)
                 {
                     palette.select(index);
@@ -586,12 +602,27 @@ impl State {
     fn click(&mut self, hit: Option<Hit>, i18n: &I18n) {
         match hit {
             Some(Hit::Action(action)) => self.perform(action, i18n),
-            Some(Hit::PaletteEntry(index)) => {
-                if let Overlay::Palette(palette) = &mut self.overlay {
-                    palette.select(index);
-                }
+            Some(Hit::ListEntry(index)) => {
+                if let Overlay::Add(form) = &mut self.overlay {
+                    if let Some(picker) = form.picker_mut() {
+                        picker.select(index);
+                    }
 
-                self.run_palette_selection(i18n);
+                    form.confirm_picker();
+                } else {
+                    if let Overlay::Palette(palette) = &mut self.overlay {
+                        palette.select(index);
+                    }
+
+                    self.run_palette_selection(i18n);
+                }
+            },
+            Some(Hit::AddField(field)) => self.click_add_field(field, i18n),
+            Some(Hit::TagCompletion(index)) => {
+                if let Overlay::Add(form) = &mut self.overlay {
+                    form.select_completion(index);
+                    form.complete();
+                }
             },
             Some(Hit::LoginField(field)) => {
                 if let Overlay::Login(form) = &mut self.overlay {
@@ -895,7 +926,12 @@ impl State {
         };
 
         match NoteText::load(collection, card.note_id) {
-            Ok(note) => self.edit = Some(note),
+            Ok(note) => {
+                self.edit = Some(EditRequest {
+                    note,
+                    purpose: Purpose::Edit,
+                });
+            },
             Err(error) => {
                 tracing::warn!(?error, "Failed to load the note for editing");
                 self.notice = Some(error_text::note_edit(&error, i18n));
@@ -904,35 +940,161 @@ impl State {
     }
 
     /// A note to hand to the editor, which the event loop runs.
-    pub const fn take_edit(&mut self) -> Option<NoteText> {
+    pub const fn take_edit(&mut self) -> Option<EditRequest> {
         self.edit.take()
     }
 
-    /// Saves what came back from the editor and shows the card again on the same side.
+    /// Saves or adds what came back from the editor.
     pub fn finish_edit(
         &mut self,
-        note: NoteText,
+        request: EditRequest,
         edited: Result<String, EditorError>,
         i18n: &I18n,
     ) {
+        let text = match edited {
+            Ok(text) => text,
+            Err(error) => {
+                tracing::warn!(?error, "Editing the note failed");
+                self.notice = Some(error_text::editor(&error, i18n));
+                return;
+            },
+        };
         let Some(collection) = &mut self.collection else {
             return;
         };
-        let saved = match edited {
-            Ok(text) => note.save(collection, &text).map_err(|error| {
-                tracing::warn!(?error, "Failed to save the edited note");
-                error_text::note_edit(&error, i18n)
-            }),
-            Err(error) => {
-                tracing::warn!(?error, "Editing the note failed");
-                Err(error_text::editor(&error, i18n))
+
+        match request.purpose {
+            Purpose::Edit => match request.note.save(collection, &text) {
+                Ok(true) => self.rerender(i18n),
+                Ok(false) => {},
+                Err(error) => {
+                    tracing::warn!(?error, "Failed to save the edited note");
+                    self.notice = Some(error_text::note_edit(&error, i18n));
+                },
             },
+            Purpose::Add { deck, tags } => match request.note.add(collection, deck, tags, &text) {
+                Ok(added) => {
+                    tracing::info!(cards = added.cards, "Added a note");
+                    self.notice = Some(if added.duplicate {
+                        i18n.text("adding-duplicate")
+                    } else {
+                        i18n.anki().adding_added().into_owned()
+                    });
+                    self.reload_decks(i18n);
+
+                    // A review would move on to the next card if refreshed now
+                    if self.review.is_none() {
+                        self.refresh_deck_screen(i18n);
+                    }
+                },
+                Err(error) => {
+                    tracing::warn!(?error, "Failed to add the note");
+                    self.notice = Some(error_text::note_edit(&error, i18n));
+                },
+            },
+        }
+    }
+
+    fn open_add(&mut self, i18n: &I18n) {
+        let Some(collection) = &mut self.collection else {
+            return;
+        };
+        let home_deck = self
+            .review
+            .as_ref()
+            .map(Review::deck)
+            .or_else(|| self.deck_screen.as_ref().map(DeckScreen::deck))
+            .unwrap_or(DeckId(1));
+
+        match adding::choices(collection, home_deck) {
+            Ok(choices) => self.overlay = Overlay::Add(AddForm::new(choices)),
+            Err(error) => {
+                tracing::warn!(?error, "Failed to load the note types and decks");
+                self.notice = Some(error.anki_error().message(i18n.anki()));
+            },
+        }
+    }
+
+    /// Opens the editor with the chosen note type's empty fields.
+    fn submit_add(&mut self, i18n: &I18n) {
+        let (Overlay::Add(form), Some(collection)) = (&self.overlay, &mut self.collection) else {
+            return;
         };
 
-        match saved {
-            Ok(true) => self.rerender(i18n),
-            Ok(false) => {},
-            Err(text) => self.notice = Some(text),
+        match NoteText::new_note(collection, form.notetype()) {
+            Ok(note) => {
+                self.edit = Some(EditRequest {
+                    note,
+                    purpose: Purpose::Add {
+                        deck: form.deck(),
+                        tags: form.tag_list(),
+                    },
+                });
+            },
+            Err(error) => {
+                tracing::warn!(?error, "Failed to start a new note");
+                self.notice = Some(error_text::note_edit(&error, i18n));
+            },
+        }
+    }
+
+    fn click_add_field(&mut self, field: add_form::Field, i18n: &I18n) {
+        let Overlay::Add(form) = &mut self.overlay else {
+            return;
+        };
+
+        form.close_picker();
+        form.set_focus(field);
+
+        match field {
+            add_form::Field::Notetype | add_form::Field::Deck => form.open_picker(),
+            add_form::Field::Tags => {},
+            add_form::Field::Add => self.submit_add(i18n),
+            add_form::Field::Close => self.overlay = Overlay::None,
+        }
+    }
+
+    fn handle_add_key(&mut self, key: KeyCode, typed: Option<char>, i18n: &I18n) {
+        let Overlay::Add(form) = &mut self.overlay else {
+            return;
+        };
+
+        if let Some(picker) = form.picker_mut() {
+            match key {
+                KeyCode::Up => picker.select_previous(),
+                KeyCode::Down => picker.select_next(),
+                KeyCode::Backspace => picker.pop(),
+                KeyCode::Enter => form.confirm_picker(),
+                _ => {
+                    if let Some(character) = typed {
+                        picker.push(character);
+                    }
+                },
+            }
+            return;
+        }
+
+        let completing = form.focus() == add_form::Field::Tags && !form.completions().is_empty();
+
+        match key {
+            KeyCode::Tab if completing => {
+                form.complete();
+            },
+            KeyCode::Up if completing => form.previous_completion(),
+            KeyCode::Down if completing => form.next_completion(),
+            KeyCode::Tab | KeyCode::Down => form.focus_next(),
+            KeyCode::BackTab | KeyCode::Up => form.focus_previous(),
+            KeyCode::Backspace => form.pop(),
+            KeyCode::Enter => match form.focus() {
+                add_form::Field::Notetype | add_form::Field::Deck => form.open_picker(),
+                add_form::Field::Tags | add_form::Field::Add => self.submit_add(i18n),
+                add_form::Field::Close => self.overlay = Overlay::None,
+            },
+            _ => {
+                if let Some(character) = typed {
+                    form.push(character);
+                }
+            },
         }
     }
 
@@ -1041,7 +1203,7 @@ impl State {
         let Overlay::Palette(palette) = &self.overlay else {
             return;
         };
-        let action = palette.selected_action();
+        let action = palette.selected_value().copied();
         self.overlay = Overlay::None;
 
         if let Some(action) = action {
@@ -1156,9 +1318,14 @@ impl State {
                 };
             },
             Action::OpenPalette => {
-                self.overlay = Overlay::Palette(Palette::new(&self.palette_actions(), i18n));
+                self.overlay = Overlay::Palette(palette::new(&self.palette_actions(), i18n));
             },
-            Action::CloseOverlay => self.overlay = Overlay::None,
+            // A list open in the Add dialog closes first
+            Action::CloseOverlay => match &mut self.overlay {
+                Overlay::Add(form) if form.picker().is_some() => form.close_picker(),
+                _ => self.overlay = Overlay::None,
+            },
+            Action::AddNote => self.open_add(i18n),
             Action::LogIn => self.overlay = Overlay::Login(LoginForm::new()),
             Action::LogOut => self.tasks.log_out(),
             // Studying keeps the collection; syncing waits for the deck list, like in Anki

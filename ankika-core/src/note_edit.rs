@@ -1,6 +1,9 @@
 use anki::collection::Collection;
+use anki::decks::DeckId;
 use anki::error::AnkiError;
 use anki::notes::{Note, NoteId};
+use anki::notetype::NotetypeId;
+use anki_proto::notes::note_fields_check_response::State as NoteFieldsState;
 
 use crate::remote::english;
 
@@ -20,6 +23,14 @@ pub enum NoteEditError {
         #[source]
         source: AnkiError,
     },
+    #[error("The first field is empty")]
+    FirstFieldEmpty,
+    #[error("The cloze note type has no cloze deletion")]
+    MissingCloze,
+    #[error("Cloze deletions only work on cloze note types")]
+    ClozeOutsideClozeNotetype,
+    #[error("Cloze deletions only work in cloze fields")]
+    ClozeOutsideClozeField,
 }
 
 impl NoteEditError {
@@ -28,7 +39,12 @@ impl NoteEditError {
     pub const fn anki_error(&self) -> Option<&AnkiError> {
         match self {
             Self::Load { source } | Self::Save { source } => Some(source),
-            Self::Missing | Self::MissingHeader { .. } => None,
+            Self::Missing
+            | Self::MissingHeader { .. }
+            | Self::FirstFieldEmpty
+            | Self::MissingCloze
+            | Self::ClozeOutsideClozeNotetype
+            | Self::ClozeOutsideClozeField => None,
         }
     }
 }
@@ -39,7 +55,36 @@ pub struct NoteText {
     names: Vec<String>,
 }
 
+/// A note that was just added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Added {
+    pub cards: usize,
+    /// Anki adds duplicates of the first field, but warns about them.
+    pub duplicate: bool,
+}
+
 impl NoteText {
+    /// An empty note of the type, for adding.
+    pub fn new_note(
+        collection: &mut Collection,
+        notetype: NotetypeId,
+    ) -> Result<Self, NoteEditError> {
+        let notetype = collection
+            .get_notetype(notetype)
+            .map_err(|source| NoteEditError::Load { source })?
+            .ok_or(NoteEditError::Missing)?;
+        let names = notetype
+            .fields
+            .iter()
+            .map(|field| field.name.clone())
+            .collect();
+
+        Ok(Self {
+            note: notetype.new_note(),
+            names,
+        })
+    }
+
     pub fn load(collection: &mut Collection, note: NoteId) -> Result<Self, NoteEditError> {
         let note = collection
             .storage
@@ -93,6 +138,46 @@ impl NoteText {
             .map_err(|source| NoteEditError::Save { source })?;
 
         Ok(true)
+    }
+}
+
+impl NoteText {
+    /// Adds the note with Anki's checks: an empty first field and misplaced or missing
+    /// clozes are refused.
+    pub fn add(
+        mut self,
+        collection: &mut Collection,
+        deck: DeckId,
+        tags: Vec<String>,
+        text: &str,
+    ) -> Result<Added, NoteEditError> {
+        let save_error = |source| NoteEditError::Save { source };
+
+        for (index, value) in parse(text, &self.names)?.into_iter().enumerate() {
+            self.note.set_field(index, value).map_err(save_error)?;
+        }
+
+        self.note.tags = tags;
+
+        let duplicate = match collection
+            .note_fields_check(&self.note)
+            .map_err(save_error)?
+        {
+            NoteFieldsState::Normal => false,
+            NoteFieldsState::Duplicate => true,
+            NoteFieldsState::Empty => return Err(NoteEditError::FirstFieldEmpty),
+            NoteFieldsState::MissingCloze => return Err(NoteEditError::MissingCloze),
+            NoteFieldsState::NotetypeNotCloze => {
+                return Err(NoteEditError::ClozeOutsideClozeNotetype);
+            },
+            NoteFieldsState::FieldNotCloze => return Err(NoteEditError::ClozeOutsideClozeField),
+        };
+        let cards = collection
+            .add_note(&mut self.note, deck)
+            .map_err(save_error)?
+            .output;
+
+        Ok(Added { cards, duplicate })
     }
 }
 

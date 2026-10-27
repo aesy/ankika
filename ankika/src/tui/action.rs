@@ -24,6 +24,7 @@ pub enum Action {
     ReplayAudio,
     Card(CardAction),
     EditNote,
+    AddNote,
     CloseReview,
     Quit,
 }
@@ -53,6 +54,7 @@ impl Action {
             Self::ReplayAudio => i18n.anki().actions_replay_audio().into_owned(),
             Self::Card(action) => card_action_label(action, i18n),
             Self::EditNote => i18n.anki().studying_edit().into_owned(),
+            Self::AddNote => i18n.anki().actions_add().into_owned(),
             Self::CloseReview => i18n.text("action-back"),
             Self::Quit => i18n.text("action-quit"),
         }

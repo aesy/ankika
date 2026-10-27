@@ -6,7 +6,7 @@ header-not-logged-in = Not logged in
 help-title = Keyboard shortcuts
 
 palette-placeholder = Type to search commands
-palette-no-matches = No matching commands
+list-no-matches = No matches
 
 error-http-client = Could not set up a network connection.
 error-load-login = Could not read the stored login. See the log for details.
@@ -35,3 +35,6 @@ action-open-deck = Open
 action-back = Back
 custom-study-invalid-amount = Enter a whole number in the allowed range.
 error-deck-missing = The deck no longer exists.
+adding-duplicate = Added. The first field matches another note of this type.
+picker-placeholder = Type to search
+adding-missing-cloze = Not added: a cloze note type needs at least one cloze deletion, like {"{{"}c1::text{"}}"}.

@@ -48,6 +48,18 @@ pub fn card_action(error: &CardActionError, i18n: &I18n) -> String {
 pub fn note_edit(error: &NoteEditError, i18n: &I18n) -> String {
     match error {
         NoteEditError::Missing => i18n.text("error-note-missing"),
+        NoteEditError::FirstFieldEmpty => {
+            i18n.anki().adding_the_first_field_is_empty().into_owned()
+        },
+        // Anki asks whether to go on here; a refusal keeps the flow simple
+        NoteEditError::MissingCloze => i18n.text("adding-missing-cloze"),
+        NoteEditError::ClozeOutsideClozeNotetype => i18n
+            .anki()
+            .adding_cloze_outside_cloze_notetype()
+            .into_owned(),
+        NoteEditError::ClozeOutsideClozeField => {
+            i18n.anki().adding_cloze_outside_cloze_field().into_owned()
+        },
         NoteEditError::MissingHeader { header } => {
             i18n.text_with("error-note-header", &[("header", header)])
         },
