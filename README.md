@@ -3,6 +3,19 @@
 Terminal client for [Anki](https://apps.ankiweb.net) that syncs with AnkiWeb, without Anki installed.
 Built on Anki's own Rust core.
 
+## Installing
+
+Release binaries for Linux (x86_64), macOS (Apple silicon) and Windows (x86_64) are on the
+[releases page](https://github.com/aesy/ankika/releases), with completions and the man page.
+
+On Arch Linux, build `pkg/arch/PKGBUILD` with `makepkg -si`.
+
+Anywhere else, with the build dependencies below:
+
+```sh
+cargo install --locked --git https://github.com/aesy/ankika ankika
+```
+
 ## Building
 
 Requires the latest stable Rust and `protoc` (Protocol Buffers compiler), which Anki's core needs at build time.

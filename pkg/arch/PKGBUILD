@@ -1,0 +1,49 @@
+# Maintainer: Isak Wertwein <isak.wertwein@gmail.com>
+
+pkgname=ankika
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Terminal client for Anki that syncs with AnkiWeb'
+arch=('x86_64' 'aarch64')
+url='https://github.com/aesy/ankika'
+license=('AGPL-3.0-or-later')
+depends=('alsa-lib' 'gcc-libs' 'glibc')
+makedepends=('cargo' 'protobuf')
+# makepkg's -flto turns ring's C code into GCC bitcode, which the Rust link can't resolve
+options=('!lto')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+# Run updpkgsums once the tag exists
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p ankika
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --workspace
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  local bin=target/release/ankika
+  local generate=("$bin" --log-file "$srcdir/generate.log")
+
+  install -Dm0755 "$bin" "$pkgdir/usr/bin/ankika"
+  install -Dm0644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+
+  "${generate[@]}" completions bash | install -Dm0644 /dev/stdin "$pkgdir/usr/share/bash-completion/completions/ankika"
+  "${generate[@]}" completions zsh | install -Dm0644 /dev/stdin "$pkgdir/usr/share/zsh/site-functions/_ankika"
+  "${generate[@]}" completions fish | install -Dm0644 /dev/stdin "$pkgdir/usr/share/fish/vendor_completions.d/ankika.fish"
+  "${generate[@]}" man | install -Dm0644 /dev/stdin "$pkgdir/usr/share/man/man1/ankika.1"
+}
