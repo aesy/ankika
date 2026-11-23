@@ -26,6 +26,8 @@ binary.
 
 [Visit the website](https://aesy.github.io/ankika/) to see what it can do.
 
+<img src="./img/screenshot.png" alt="ankika review screen showing a Spanish vocabulary card with its answer and the Again, Hard, Good and Easy buttons">
+
 ## Usage
 
 Run `ankika` to open the TUI, and log in from the command palette to sync with AnkiWeb.
