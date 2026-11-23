@@ -1,0 +1,184 @@
+{
+  "nav": {
+    "label": "Main",
+    "home": "ankika home",
+    "features": "Features",
+    "scripting": "Scripting",
+    "github": "GitHub",
+    "install": "Install"
+  },
+  "terminal": {
+    "title": "ankika"
+  },
+  "hero": {
+    "title": "Anki",
+    "titleRest": "in the terminal.",
+    "lead": "ankika is a terminal client for Anki that syncs with AnkiWeb. It doesn't need Anki installed. It's built on Anki's own Rust core, so cards are scheduled the same way as in Anki.",
+    "install": "Install",
+    "source": "Source on GitHub",
+    "notes": {
+      "platforms": "Linux, macOS, Windows",
+      "license": "AGPL-3.0",
+      "input": "Keyboard and mouse"
+    },
+    "tryIt": "Click the terminal, then press <kbd>Space</kbd> and <kbd>1</kbd> to <kbd>4</kbd>."
+  },
+  "demo": {
+    "label": "ankika review screen. Press Space to show the answer, then 1 to 4 to answer.",
+    "deck": "Spanish::Vocabulary",
+    "synced": "Synced",
+    "account": "you@example.com",
+    "showAnswer": "Show Answer",
+    "back": "Back",
+    "ratings": {
+      "again": "Again",
+      "hard": "Hard",
+      "good": "Good",
+      "easy": "Easy"
+    },
+    "congratulations": "Congratulations! You have finished this deck for now.",
+    "studied": "Studied {{count}} cards in 0.9 minutes today (13.5s/card).",
+    "hints": {
+      "showAnswer": "Show Answer",
+      "replayAudio": "Replay Audio",
+      "undo": "Undo",
+      "back": "Back",
+      "help": "Help",
+      "commands": "Commands",
+      "quit": "Quit",
+      "add": "Add",
+      "browse": "Browse",
+      "edit": "Edit",
+      "markNote": "Mark Note",
+      "buryCard": "Bury Card"
+    },
+    "cards": {
+      "cat": { "front": "el gato", "back": "the cat" },
+      "station": { "front": "la estación", "back": "the station" },
+      "rain": { "front": "llover", "back": "to rain" },
+      "thursday": { "front": "el jueves", "back": "Thursday" }
+    }
+  },
+  "sync": {
+    "eyebrow": "Sync",
+    "title": "Syncs with AnkiWeb",
+    "lead": "Log in with your AnkiWeb account to sync cards, review history and media with Anki on your other devices. A self-hosted anki-sync-server works as well.",
+    "points": {
+      "when": "Syncs on startup, after login and before quitting",
+      "media": "Media syncs in the background",
+      "keyring": "The login is stored in the system keyring"
+    },
+    "screen": {
+      "decks": "Decks",
+      "due": "117 cards due",
+      "synced": "Synced",
+      "deck": "Deck",
+      "new": "New",
+      "learn": "Learn",
+      "dueColumn": "Due",
+      "study": "Study",
+      "sync": "Sync",
+      "commands": "Commands",
+      "quit": "Quit",
+      "names": {
+        "spanish": "Spanish",
+        "grammar": "Grammar",
+        "vocabulary": "Vocabulary",
+        "pharmacology": "Pharmacology",
+        "rust": "Rust",
+        "leeches": "Leeches"
+      }
+    }
+  },
+  "features": {
+    "eyebrow": "Features",
+    "title": "What it covers",
+    "lead": "Cards are rendered from their HTML, so formatting, clozes, images and sound are kept. Most of what you do in Anki day to day is there as well.",
+    "items": {
+      "images": {
+        "key": "kitty / sixel / iTerm2",
+        "title": "Images in the card",
+        "body": "Pictures show inline in terminals that support them, and as colored blocks everywhere else."
+      },
+      "audio": {
+        "key": "<kbd>r</kbd> replay",
+        "title": "Audio playback",
+        "body": "Sounds play on their own when the deck says so. Replay them with one key, or click a sound to hear it."
+      },
+      "typeIn": {
+        "title": "Type-in answers",
+        "body": "Type the answer and get the same comparison Anki shows, clozes included."
+      },
+      "notes": {
+        "key": "<kbd>a</kbd> add, <kbd>e</kbd> edit",
+        "title": "Add and edit notes",
+        "body": "Pick a note type and deck, then write the fields in your $EDITOR. While reviewing, <kbd>e</kbd> opens the current note."
+      },
+      "browser": {
+        "key": "<kbd>b</kbd> browse",
+        "title": "Card browser",
+        "body": "Search with Anki's own search syntax, then flag, suspend, bury or move cards in bulk."
+      },
+      "stats": {
+        "key": "<kbd>t</kbd> stats",
+        "title": "Statistics",
+        "body": "Today, future due, reviews, a year's calendar and true retention, drawn as charts in the terminal."
+      },
+      "palette": {
+        "key": "<kbd>Ctrl+P</kbd> palette",
+        "title": "Command palette",
+        "body": "Find any action by fuzzy search. The footer lists the keys for the current screen."
+      },
+      "packages": {
+        "key": ".apkg / .colpkg",
+        "title": "Import and export",
+        "body": "Import shared decks and export decks or the whole collection, from the TUI or the command line."
+      },
+      "options": {
+        "key": "Deck options",
+        "title": "Your settings, kept",
+        "body": "Deck options with FSRS, custom study and separate profiles work like they do in Anki."
+      }
+    }
+  },
+  "scripting": {
+    "eyebrow": "Scripting",
+    "title": "Commands for scripts",
+    "lead": "Besides the full-screen app, ankika has commands for status bars, timers and shell scripts. <code>--json</code> prints the output as JSON.",
+    "due": {
+      "title": "Cards due, in your status bar",
+      "body": "For waybar, polybar, tmux or a shell prompt. <code>--deck</code> counts a single deck."
+    },
+    "sync": {
+      "title": "Sync on a timer",
+      "body": "Run <code>ankika sync</code> from cron or a systemd timer. Completions and a man page are included."
+    }
+  },
+  "install": {
+    "eyebrow": "Download",
+    "title": "Install",
+    "lead": "Download a release binary or build it yourself. Run <code>ankika</code> and log in from the command palette to sync.",
+    "tabsLabel": "Install method",
+    "copy": "copy",
+    "copied": "copied",
+    "release": {
+      "tab": "Release binaries",
+      "note": "For Linux (x86_64), macOS (Apple silicon) and Windows (x86_64). Each archive has the binary, shell completions and the man page."
+    },
+    "arch": {
+      "tab": "Arch Linux",
+      "note": "Installs completions for bash, zsh and fish, and the man page."
+    },
+    "cargo": {
+      "tab": "Cargo",
+      "note": "Needs the latest stable Rust and protoc. On Linux, audio also needs ALSA's development files."
+    }
+  },
+  "footer": {
+    "label": "Links",
+    "source": "Source code",
+    "releases": "Releases",
+    "issues": "Report a problem",
+    "notice": "Free software under the AGPL-3.0. ankika is an independent project and isn't affiliated with Anki or AnkiWeb."
+  }
+}

@@ -1,0 +1,99 @@
+/* The page follows the visitor's color scheme; terminal frames keep the TUI's dark palette in both. */
+:root {
+  --ankika-bg: #181921;
+  --ankika-surface: #242632;
+  --ankika-border: #44475a;
+  --ankika-text: #dcdfe4;
+  --ankika-muted: #808596;
+  --ankika-accent: #82aaff;
+  --ankika-new: #60a5fa;
+  --ankika-learn: #f87171;
+  --ankika-review: #4ade80;
+  --ankika-glow: rgba(130, 170, 255, 0.14);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --ankika-bg: #fafafc;
+    --ankika-surface: #eceef4;
+    --ankika-border: #c8ccd8;
+    --ankika-text: #20222c;
+    --ankika-muted: #6e7384;
+    --ankika-accent: #2563eb;
+    --ankika-new: #1d4ed8;
+    --ankika-learn: #b91c1c;
+    --ankika-review: #15803d;
+    --ankika-glow: rgba(37, 99, 235, 0.1);
+    color-scheme: light;
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--ankika-bg);
+  color: var(--ankika-text);
+  font-size: 17px;
+  line-height: 1.6;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Keeps content clear of the safe area above the sticky bar */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: var(--ankika-bg);
+}
+
+[id] {
+  scroll-margin-top: 80px;
+}
+
+a {
+  color: var(--ankika-accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ankika-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family: 'Bricolage Grotesque Variable', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+h3 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0;
+}
+
+code,
+kbd {
+  font-family:
+    'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+}
