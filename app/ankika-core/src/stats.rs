@@ -150,27 +150,24 @@ pub fn load(
         .and_then(|counts| counts.excluding_inactive)
         .unwrap_or_default();
     let retention = graphs.true_retention.unwrap_or_default();
-    let reviews = graphs
-        .reviews
-        .map(|reviews| {
-            reviews
-                .count
-                .into_iter()
-                .map(|(day, count)| {
-                    (
-                        day,
-                        Reviews {
-                            learn: count.learn,
-                            relearn: count.relearn,
-                            young: count.young,
-                            mature: count.mature,
-                            filtered: count.filtered,
-                        },
-                    )
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let reviews = graphs.reviews.map_or_default(|reviews| {
+        reviews
+            .count
+            .into_iter()
+            .map(|(day, count)| {
+                (
+                    day,
+                    Reviews {
+                        learn: count.learn,
+                        relearn: count.relearn,
+                        young: count.young,
+                        mature: count.mature,
+                        filtered: count.filtered,
+                    },
+                )
+            })
+            .collect()
+    });
 
     Ok(Stats {
         today: Today {
@@ -197,12 +194,12 @@ pub fn load(
             buried: counts.buried,
         },
         retention: TrueRetentionStats {
-            today: retention.today.map(Retention::from).unwrap_or_default(),
-            yesterday: retention.yesterday.map(Retention::from).unwrap_or_default(),
-            week: retention.week.map(Retention::from).unwrap_or_default(),
-            month: retention.month.map(Retention::from).unwrap_or_default(),
-            year: retention.year.map(Retention::from).unwrap_or_default(),
-            all_time: retention.all_time.map(Retention::from).unwrap_or_default(),
+            today: retention.today.map_or_default(Retention::from),
+            yesterday: retention.yesterday.map_or_default(Retention::from),
+            week: retention.week.map_or_default(Retention::from),
+            month: retention.month.map_or_default(Retention::from),
+            year: retention.year.map_or_default(Retention::from),
+            all_time: retention.all_time.map_or_default(Retention::from),
         },
     })
 }

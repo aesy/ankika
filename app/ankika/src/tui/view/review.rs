@@ -144,7 +144,7 @@ pub fn render(
 /// The deck name, with Anki's mark star and flag for the card on screen.
 fn title(review: &Review, theme: Theme) -> Line<'static> {
     let mut spans = vec![Span::raw(format!(" {} ", review.deck_name()))];
-    let marks = review.card().map(|card| card.marks).unwrap_or_default();
+    let marks = review.card().map_or_default(|card| card.marks);
 
     if marks.marked {
         spans.push(Span::styled("★ ", Style::new().fg(theme.accent)));
