@@ -11,6 +11,7 @@ edition = "2024"
 rust-version = "1.100.0"
 authors = ["Isak Wertwein <isak.wertwein@gmail.com>"]
 license = "AGPL-3.0-or-later"
+homepage = "https://aesy.github.io/ankika/"
 repository = "https://github.com/aesy/ankika"
 readme = "README.md"
 keywords = ["anki", "ankiweb", "flashcards", "srs", "tui"]
