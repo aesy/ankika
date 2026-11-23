@@ -1,8 +1,8 @@
 [workspace]
 resolver = "3"
 members = [
-    "ankika",
-    "ankika-core",
+    "app/ankika",
+    "app/ankika-core",
 ]
 
 [workspace.package]
@@ -19,7 +19,7 @@ categories = ["command-line-utilities"]
 publish = false
 
 [workspace.dependencies]
-ankika-core = { path = "ankika-core" }
+ankika-core = { path = "app/ankika-core" }
 
 anki = { git = "https://github.com/ankitects/anki.git", tag = "26.09.3" }
 anki_proto = { git = "https://github.com/ankitects/anki.git", tag = "26.09.3" }
