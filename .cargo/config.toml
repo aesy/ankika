@@ -1,0 +1,4 @@
+[env]
+# Anki's proto crates share this file through OUT_DIR/../.. by default, which Cargo 1.100's build-dir
+# layout gives each package its own copy of
+DESCRIPTORS_BIN = { value = "target/anki_descriptors.bin", relative = true }
